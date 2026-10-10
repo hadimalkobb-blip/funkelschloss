@@ -1,0 +1,24 @@
+{
+ "name": "Funkelschloss",
+ "short_name": "Funkelschloss",
+ "description": "Lesen lernen im Glitzerschloss – mit Online-Arena (Raum-Code, ohne Konto).",
+ "start_url": "./",
+ "scope": "./",
+ "display": "standalone",
+ "orientation": "any",
+ "background_color": "#f6e6ff",
+ "theme_color": "#f6e6ff",
+ "icons": [
+  {
+   "src": "icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png"
+  },
+  {
+   "src": "icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any"
+  }
+ ]
+}

@@ -2462,17 +2462,18 @@ window.addEventListener('unhandledrejection', e => { console.error('Fehler:', e.
 function makeRound(id, n, opts) {
   opts = opts || {};
   const g = App.gen;
-  const R = { id, n, i: 0, first: 0, misses: 0, stars: 0, streak: 0, wrongNow: 0, locked: false, done: false, diff: opts.diff || 1, ask: opts.ask || null, params: opts.params || {}, info: opts.info || null };
+  const R = window.__R = { id, n, i: 0, first: 0, misses: 0, stars: 0, streak: 0, wrongNow: 0, locked: false, done: false, diff: opts.diff || 1, ask: opts.ask || null, params: opts.params || {}, info: opts.info || null };
   R.dots = h('div', { class: 'dots', 'aria-hidden': 'true' });
   R.paint = () => { R.dots.innerHTML = ''; for (let k = 0; k < R.n; k++) R.dots.appendChild(h('i', { class: k < R.i ? 'done' : k === R.i ? 'now' : '' })); };
   R.start = () => {
     R.paint();
-    if (!R.race && !RACE_OFF[id] && S.botsGames !== false && R.n >= 4 && typeof BotRace === 'function') {
+    if (typeof togEnsure === 'function') togEnsure(R);
+    if (!R.race && !R.tog && !RACE_OFF[id] && S.botsGames !== false && R.n >= 4 && typeof BotRace === 'function') {
       try { R.race = BotRace(R); if (R.dots.isConnected) R.dots.after(R.race.el); else { const s = $('#stage .screen'); if (s) s.prepend(R.race.el); else R.race = null; } } catch (e) { R.race = null; }
     }
     if (R.ask) R.ask(R.i, R);
   };
-  R.finish = () => { if (R.done) return; R.done = true; if (R.onFinish) { try { R.onFinish(); } catch (e) { } } endRound(R); };
+  R.finish = () => { if (R.done) return; R.done = true; if (typeof togEnsure === 'function' && togEnsure(R)) { R.doneMs = Date.now() - R.tog.t0; R.tog.pub(); } if (R.onFinish) { try { R.onFinish(); } catch (e) { } } endRound(R); };
   R.good = (el, key, o) => {
     o = o || {};
     if (R.locked || R.done) return false;
@@ -2484,7 +2485,7 @@ function makeRound(id, n, opts) {
       R.first++; R.streak++; R.stars++; addStars(1, el);
       if (R.streak % 5 === 0) { setTimeout(() => AE.play('combo'), 260); R.stars++; setTimeout(() => addStars(1, el), 420); toast(R.streak + ' richtig hintereinander! +1'); }
     } else R.streak = 0;
-    R.i++; R.wrongNow = 0; R.paint(); if (R.race) R.race.step(first);
+    R.i++; R.wrongNow = 0; R.paint(); if (R.race) R.race.step(first); if (R.tog) R.tog.pub();
     const sp = o.say ? Nur.say(o.say, { keep: false }) : (o.praise === false ? null : (Math.random() < 0.6 ? Nur.praise() : null));
     R.locked = true;
     const minWait = o.wait != null ? o.wait : 950;
@@ -2536,6 +2537,11 @@ function endRound(R) {
       canHarder ? h('button', { class: 'btn gold', onclick: () => { AE.play('tap'); S.diff[R.id] = (S.diff[R.id] || 1) + 1; Store.save(); App.go(R.id, R.params); } }, h('span', { html: ICON.up }), 'Schwerer') : null,
       h('button', { class: 'btn soft', onclick: () => { AE.play('tap'); App.go('home'); } }, h('span', { html: ICON.home }), 'Zum Schloss')));
   let raceSay = [];
+  if (R.tog) {
+    const back = h('button', { class: 'btn gold', onclick: () => { AE.play('tap'); App.go('online'); } }, '🌐 Zurück zum Raum');
+    scr.insertBefore(togRanking(R), scr.lastChild);
+    scr.replaceChild(h('div', { class: 'row' }, back, h('button', { class: 'btn soft', onclick: () => { AE.play('tap'); App.go('home'); } }, h('span', { html: ICON.home }), 'Zum Schloss')), scr.lastChild);
+  }
   if (R.race) {
     const pl = R.race.place(), ord = R.race.order(); try { R.race.finish(); } catch (e) { }
     const rb = h('div', { class: 'race-end' }, h('b', {}, pl === 1 ? 'Platz 1 – du hast gegen die Bots gewonnen!' : `Platz ${pl} von 4`),
@@ -2745,6 +2751,8 @@ SCREENS.home = (stage, params) => {
   scr.appendChild(h('div', { class: 'hello' }, h('h1', { class: 'h1' }, `Hallo, ${childName()}!`)));
   const tiles = h('div', { class: 'tiles' });
   tiles.appendChild(dailyTile());
+  { const t = h('button', { class: 'tile online-tile', 'aria-label': 'Zusammen spielen' }, h('div', { class: 'ico on-ico' }, '🌐'), h('div', { class: 'nm' }, 'Zusammen spielen'), h('div', { class: 'nm-ar ar' }, 'العبوا سوا'), Net.nr ? h('div', { class: 'newdot' }, Net.code) : null);
+    t.onclick = () => { AE.play('pop'); FX.burstAt(t, { n: 14 }); App.go('online'); }; tiles.appendChild(t); }
   const list = GAMES.filter(g => g.id !== 'kino');
   const open = list.filter(g => unlocked(g.id)), shut = list.filter(g => !unlocked(g.id)).sort((a, b) => a.need - b.need);
   [...open, ...shut, GAME.kino].forEach(g => tiles.appendChild(gameTile(g)));
@@ -2799,13 +2807,13 @@ function gameTile(g) {
 /* ======================= game wrapper ======================= */
 function playGame(id, params) {
   const g = GAME[id], impl = GAME_IMPL[id], stage = $('#stage');
-  if (!unlocked(id) && !(params && params.invite)) { App.go('home'); return; }
+  if (!unlocked(id) && !(params && (params.invite || params.tog))) { App.go('home'); return; }
   Bar.game(g.name, { help: () => openGameHelp(id) });
   Nur.screen = () => [D(g.help), A(g.har)];
   const first = !S.played[id];
   S.played[id] = (S.played[id] || 0) + 1; S.lastGame = id; Store.save();
   const ctx = { id, diff: S.diff[id] || 1, params: params || {} };
-  if (first && !g.free) { openGameHelp(id, () => impl.start(stage, Object.assign(ctx, { diff: S.diff[id] || 1 }))); return; }
+  if (first && !g.free && !(params && params.tog)) { openGameHelp(id, () => impl.start(stage, Object.assign(ctx, { diff: S.diff[id] || 1 }))); return; }
   impl.start(stage, ctx);
 }
 function openGameHelp(id, onStart) {
@@ -2865,7 +2873,7 @@ function openWorldSheet() {
       render: box => box.append(
         h('p', { class: 'hub-sub' }, '🖍️ Glitzerstift'), optGrid(PENS.map(p => [h('span', { class: 'penswatch pen-' + p[1] }, 'Abc'), p[0]]), S.pen || 0, i => { S.pen = i; Store.save(); }),
         h('p', { class: 'hub-sub' }, '✨ Glitzer'), emoSlider({ min: 0, max: 2, val: S.sparkle == null ? 2 : S.sparkle, label: '', a: '·', b: '✨✨✨', onInput: v => { S.sparkle = v; Store.save(); FX.seed(); AE.play('pop'); } }),
-        h('p', { class: 'hub-sub' }, '⚡ Flüssig-Modus (für ältere oder große iPads)'), optGrid([['🤖', 'Automatisch'], ['⚡', 'Flüssig'], ['💎', 'Schön']], ({ auto: 0, low: 1, high: 2 })[S.perf || 'auto'], i => { Perf.set(['auto', 'low', 'high'][i]); toast(Perf.low ? 'Flüssig-Modus an' : 'Schön-Modus an'); })) },
+        h('p', { class: 'hub-sub' }, '⚡ Flüssig-Modus (für ältere oder große iPads)'), optGrid([['⚙️', 'Automatisch'], ['⚡', 'Flüssig'], ['💎', 'Schön']], ({ auto: 0, low: 1, high: 2 })[S.perf || 'auto'], i => { Perf.set(['auto', 'low', 'high'][i]); toast(Perf.low ? 'Flüssig-Modus an' : 'Schön-Modus an'); })) },
     { id: 'schrift', emo: '🔤', name: 'Schrift', col: '#4cc3d9',
       say: () => [D('Schriftgröße'), ...arIf('حجم الخط')],
       render: box => box.appendChild(optGrid([18, 23, 28].map(px => [h('span', { style: { fontSize: px + 'px', fontWeight: 800 } }, 'Aa'), '']), S.font || 0, i => { S.font = i; Store.save(); applyTheme(); })) }
@@ -8719,7 +8727,7 @@ GAME_IMPL.arena.start = (function (orig) {
       const grid = h('div', { class: 'ar-items' });
       ARENA_SHOP[cat].forEach(it => {
         const own = arenaOwned(cat, it), on = A[cat] === it[0], price = it[it.length - 1];
-        const sw = cat === 'paint' ? h('span', { class: 'ar-sw', style: { background: it[2] === 'rainbow' ? 'linear-gradient(90deg,#ff5d6c,#ffb21a,#ffe14d,#5fd36a,#3aa7ff,#9b6bff)' : it[2] } }) : h('span', { class: 'ar-ico' }, { hat: { party: '🥳', flower: '🌸', bow: '🎀', crown: '👑', star: '⭐' }, horn: { tuut: '📯', squeak: '🔔', troete: '🎺', boing: '🪀', fanfare: '🎉' }, trail: { bubbles: '🫧', stars: '✨', hearts: '💖', rainbow: '🌈' } }[cat][it[2]] || '—');
+        const sw = cat === 'paint' ? h('span', { class: 'ar-sw', style: { background: it[2] === 'rainbow' ? 'linear-gradient(90deg,#ff5d6c,#ffb21a,#ffe14d,#5fd36a,#3aa7ff,#9b6bff)' : it[2] } }) : h('span', { class: 'ar-ico' }, { hat: { party: '🎉', flower: '🌸', bow: '🎀', crown: '👑', star: '⭐' }, horn: { tuut: '📯', squeak: '🔔', troete: '🎺', boing: '🪀', fanfare: '🎉' }, trail: { bubbles: '🫧', stars: '✨', hearts: '💖', rainbow: '🌈' } }[cat][it[2]] || '—');
         const b = h('button', { class: 'ar-item' + (on ? ' on' : '') + (own ? '' : ' lock'), type: 'button' }, sw, h('b', {}, it[1]), own ? h('small', {}, on ? '✓' : '') : h('small', { class: 'pr' }, String(price), h('span', { html: ICON.coin })));
         b.onclick = () => {
           unlockAudio();
@@ -8761,11 +8769,11 @@ GAME_IMPL.arena.start = (function (orig) {
         h('div', { class: 'ar-lob-left' }, view, shopEl),
         h('div', { class: 'ar-lob-right' },
           typeof arenaOnlineCard === 'function' ? arenaOnlineCard(g0) : null,
-          opt('👥 Spieler (dieses Gerät)', [[1, '1 Spieler'], [2, '2 Spieler']], () => A.players, v => { A.players = v; }),
+          opt('🎮 Spieler (dieses Gerät)', [[1, '1 Spieler'], [2, '2 Spieler']], () => A.players, v => { A.players = v; }),
           opt('⚔️ Modus', [['ffa', 'Jeder gegen jeden'], ['teams', 'Teams']], () => A.mode, v => { A.mode = v; }),
           opt('🚩 Anzahl Teams', [[2, '2 Teams'], [3, '3 Teams']], () => A.teams, v => { A.teams = v; }),
-          opt('👪 Spieler pro Team (online, Rest füllen Bots)', [[1, '1'], [2, '2'], [3, '3']], () => A.teamSize, v => { A.teamSize = v; }),
-          opt('🤖 Freunde als Gegner', [[1, '1'], [2, '2'], [3, '3'], [4, '4']], () => A.bots, v => { A.bots = v; }),
+          opt('🚩 Spieler pro Team (online, Rest füllen Bots)', [[1, '1'], [2, '2'], [3, '3']], () => A.teamSize, v => { A.teamSize = v; }),
+          opt('⚙️ Freunde als Gegner', [[1, '1'], [2, '2'], [3, '3'], [4, '4']], () => A.bots, v => { A.bots = v; }),
           opt('🔥 Stärke der Freunde', [[1, 'Leicht'], [2, 'Mittel'], [3, 'Profi']], () => A.level, v => { A.level = v; }),
           opt('⏱️ Zeit', [[60, '1 Min'], [90, '1,5 Min'], [150, '2,5 Min']], () => A.time, v => { A.time = v; }),
           opt('📚 Buchstaben-Kisten', [[1, 'An'], [0, 'Aus']], () => A.learn, v => { A.learn = v; }),
@@ -8800,10 +8808,10 @@ const SupaRoom = {
     const notify = (joined = [], left = [], updated = []) => { snap = Object.freeze([meObj(), ...others.values()].map(p => Object.freeze(Object.assign({}, p)))); subs.forEach(f => { try { f({ peers: snap, joined, left, updated }); } catch (e) { console.error(e); } }); };
     const send = () => { if (!alive) return; lastSent = Date.now(); timer = null; ch.send({ type: 'broadcast', event: 'p', payload: { k: myPeer, p: myPres } }).catch(() => { }); };
     const schedule = () => { if (timer) return; const gap = myPres.ph === 'play' ? (myPres.ro ? 250 : 333) : 500; timer = setTimeout(send, Math.max(0, gap - (Date.now() - lastSent))); };
-    ch.on('broadcast', { event: 'p' }, m => { const d = m && m.payload; if (!d || !d.k || d.k === myPeer) return; const ex = others.get(d.k); const o = { peer: d.k, isMe: false, sameTab: false, kind: 'viewer', guest: true, presence: d.p || {}, updatedAt: Date.now(), seen: Date.now() }; others.set(d.k, o); if (!ex) { notify([o]); send(); } else notify([], [], [o]); });
+    ch.on('broadcast', { event: 'p' }, m => { const d = m && m.payload; if (!d || !d.k || d.k === myPeer) return; const ex = others.get(d.k); const o = { peer: d.k, isMe: false, sameTab: false, kind: 'viewer', guest: true, presence: d.p || {}, updatedAt: Date.now(), seen: Date.now() }; others.set(d.k, o); if (!ex) { notify([o]); if (Object.keys(myPres).length) send(); } else notify([], [], [o]); });
     ch.on('broadcast', { event: 'bye' }, m => { const d = m && m.payload; if (d && others.has(d.k)) { const o = others.get(d.k); others.delete(d.k); notify([], [o]); } });
     await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('timeout')), 9000); ch.subscribe(st => { if (st === 'SUBSCRIBED') { clearTimeout(t); res(); } else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') { clearTimeout(t); rej(new Error(st)); } }); });
-    const hb = setInterval(() => { if (Date.now() - lastSent > 2000) send(); const now = Date.now(); for (const [k, o] of others) if (now - o.seen > 6000) { others.delete(k); notify([], [o]); } }, 500);
+    const hb = setInterval(() => { if (Object.keys(myPres).length && Date.now() - lastSent > 2000) send(); const now = Date.now(); for (const [k, o] of others) if (now - o.seen > 6000) { others.delete(k); notify([], [o]); } }, 500);
     notify();
     return {
       presence(patch) { const np = Object.assign({}, myPres); for (const k in patch) { if (patch[k] === null || patch[k] === undefined) delete np[k]; else np[k] = patch[k]; } myPres = np; schedule(); notify([], [], [meObj()]); return Promise.resolve(); },
@@ -8871,7 +8879,7 @@ const Net = {
   look() {
     const A = arenaState(); return { app: 'arena', id: this.myId(), nm: (A.netName || (S.name || '').trim() || 'Gast').slice(0, 14), paint: A.paint, hat: A.hat, trail: A.trail, horn: A.horn, lb: A.leaveBot || 4, jt: this.jt, team: A.netTeam || 0 };
   },
-  setLobby(extra) { if (!this.nr) return; const A = arenaState(); const P = Object.assign(this.look(), { ph: 'lobby', c: null, h: null, tk: null, fx: null, emo: null, g: null, ro: null, cfg: null, cfgp: this.isHost() ? { mode: A.mode, teams: A.teams, ts: A.teamSize, bots: A.bots, lvl: A.level, time: A.time, bp: this.plan() } : null }, extra || {}); this.nr.presence(P).catch(() => { }); },
+  setLobby(extra) { if (!this.nr) return; const A = arenaState(); const P = Object.assign(this.look(), { ph: 'lobby', c: null, h: null, tk: null, fx: null, emo: null, g: null, ro: null, cfg: null, tg: null, t0: null, gm: this.isHost() ? (this.gm || 'arena') : null, open: this.isHost() ? this.open !== false : null, cfgp: this.isHost() ? { mode: A.mode, teams: A.teams, ts: A.teamSize, bots: A.bots, lvl: A.level, time: A.time, bp: this.plan() } : null }, extra || {}); this.nr.presence(P).catch(() => { }); },
   peers() { if (!this.nr) return []; return this.nr.peers().filter(p => p.presence && p.presence.app === 'arena' && p.presence.id).map(p => ({ id: p.presence.id, pr: p.presence, peer: p })); },
   hostPeer() { const ps = this.peers(); if (!ps.length) return null; return ps.slice().sort((a, b) => ((a.pr.jt || 9e15) - (b.pr.jt || 9e15)) || (a.id < b.id ? -1 : 1))[0]; },
   isHost() { const h = this.hostPeer(); return !h || h.id === this.myId(); },
@@ -8899,14 +8907,14 @@ function versus(ps, cp) {
   if (teams) {
     let k = 0;
     for (let t = 0; t < teams; t++) {
-      const mem = ppl.filter(p => ((p.pr.team || 0) % teams) === t).map(p => h('span', { class: 'hu' }, '🙂 ' + nm(p)));
-      for (let j = mem.length; j < ts; j++) { const b = pool[k++ % pool.length]; mem.push(h('span', { class: 'bo' }, '🤖 ' + b.name)); }
+      const mem = ppl.filter(p => ((p.pr.team || 0) % teams) === t).map(p => h('span', { class: 'hu' }, '🎮 ' + nm(p)));
+      for (let j = mem.length; j < ts; j++) { const b = pool[k++ % pool.length]; mem.push(h('span', { class: 'bo' }, '⚙️ ' + b.name)); }
       if (t) box.appendChild(h('i', { class: 'x' }, '⚔️'));
       box.appendChild(h('div', { class: 'side', style: { '--t': AR_TEAMS[t][1] } }, h('b', {}, AR_TEAMS[t][0] + ' · ' + mem.length), ...mem));
     }
   } else {
     const nb = clamp(cp.bots != null ? cp.bots : A.bots, 0, Math.max(0, 6 - ppl.length));
-    const all = ppl.map(p => h('span', { class: 'hu' }, '🙂 ' + nm(p))).concat(pool.slice(0, nb).map(b => h('span', { class: 'bo' }, '🤖 ' + b.name)));
+    const all = ppl.map(p => h('span', { class: 'hu' }, '🎮 ' + nm(p))).concat(pool.slice(0, nb).map(b => h('span', { class: 'bo' }, '⚙️ ' + b.name)));
     all.forEach((e, i) => { if (i) box.appendChild(h('i', { class: 'x' }, '⚔️')); box.appendChild(h('div', { class: 'side solo' }, e)); });
   }
   return h('div', { class: 'ar-vsw' }, h('small', {}, teams ? 'Wer gegen wen (' + Array(teams).fill(ts).join(' gegen ') + '):' : 'Jeder gegen jeden (' + (box.querySelectorAll('.side').length) + ' Autos):'), box);
@@ -8969,7 +8977,7 @@ function arenaOnlineCard(g0) {
     ps.slice().sort((a, b) => (a.pr.jt || 0) - (b.pr.jt || 0)).forEach((p, i) => list.appendChild(h('div', { class: 'ar-p' + (p.id === Net.myId() ? ' me' : ''), style: { '--c': NET_COLS[i % NET_COLS.length] } },
       h('span', { class: 'dot' }), h('b', {}, (p.pr.nm || 'Spieler') + (p.id === Net.myId() ? ' (du)' : '')), host && host.id === p.id ? h('span', { class: 'tag' }, '👑 Gastgeber') : null,
       cp.mode === 'teams' ? h('span', { class: 'tm', style: { '--t': AR_TEAMS[(p.pr.team || 0) % (cp.teams || 2)][1] } }, AR_TEAMS[(p.pr.team || 0) % (cp.teams || 2)][0]) : null,
-      h('small', {}, p.pr.ph === 'play' ? '🎮 spielt' : 'wartet'), h('small', { class: 'lb' }, '🤖 wenn weg: ' + lvlName(p.pr.lb)))));
+      h('small', {}, p.pr.ph === 'play' ? '🎮 spielt' : 'wartet'), h('small', { class: 'lb' }, '⚙️ wenn weg: ' + lvlName(p.pr.lb)))));
     const lbSeg = h('div', { class: 'ar-seg' }); [[1, 'Leicht'], [2, 'Mittel'], [3, 'Profi'], [4, 'Wie ich']].forEach(([v, t]) => { const b = h('button', { class: 'ar-segb' + ((A.leaveBot || 4) === v ? ' on' : ''), type: 'button' }, t); b.onclick = () => { A.leaveBot = v; Store.save(); Net.setLobby(); AE.play('tap'); paint(); }; lbSeg.appendChild(b); });
     let teamRow = null;
     if (cp.mode === 'teams') { const seg = h('div', { class: 'ar-seg' }); for (let t = 0; t < (cp.teams || 2); t++) { const b = h('button', { class: 'ar-segb team' + ((A.netTeam || 0) === t ? ' on' : ''), type: 'button', style: { '--c': AR_TEAMS[t][1] } }, AR_TEAMS[t][0]); b.onclick = () => { A.netTeam = t; Store.save(); Net.setLobby(); AE.play('tap'); paint(); }; seg.appendChild(b); } teamRow = h('div', { class: 'ar-opt' }, h('small', {}, '🚩 Mein Team:'), seg); }
@@ -8979,7 +8987,7 @@ function arenaOnlineCard(g0) {
     if (FUNKEL_SITE) { linkB = h('button', { class: 'btn soft small', type: 'button' }, '🔗 Einladungs-Link kopieren'); linkB.onclick = () => { const u = location.origin + location.pathname + '?room=' + encodeURIComponent(Net.code); try { navigator.clipboard.writeText(u).then(() => toast('Link kopiert')).catch(() => toast(u)); } catch (e) { toast(u); } }; }
     add(h('div', { class: 'ar-row sp' }, h('b', {}, '🌐 Raum'), copyB), h('small', {}, 'Gib diesen Code auf dem anderen Gerät ein.'), linkB, versus(ps, cp), list,
       h('small', { class: 'ar-mode' }, modeTxt), teamRow,
-      h('div', { class: 'ar-opt' }, h('small', {}, '🤖 Wenn ich das Spiel verlasse, fährt ein Bot für mich:'), lbSeg));
+      h('div', { class: 'ar-opt' }, h('small', {}, '⚙️ Wenn ich das Spiel verlasse, fährt ein Bot für mich:'), lbSeg));
     const hp = host ? host.pr : null;
     if (hp && hp.ph === 'play' && hp.ro && !hp.ro.pl.some(x => x.id === Net.myId())) add(h('p', { class: 'ar-wait' }, '⏳ Gerade läuft eine Runde. In der nächsten bist du dabei!'));
     if (amHost) {
@@ -8993,7 +9001,7 @@ function arenaOnlineCard(g0) {
         if (teams) { const pool = Net.planBots(); let k = 0; for (let t = 0; t < teams; t++) { const need = Math.max(0, A.teamSize - pl.filter(x => x.team === t).length); for (let j = 0; j < need && bt.length + pl.length < 8; j++) { const b = pool[k++ % pool.length]; bt.push(b.id); btt.push(t); } } }
         else { const nbots = clamp(A.bots, 0, Math.max(0, 6 - pl.length)); bt = Net.planBots().slice(0, nbots).map(b => b.id); }
         Net.roster = { pl, bt, btt }; Net.cfg = { time: A.time, bots: bt.length, level: A.level, learn: A.learn, mode: teams ? 'teams' : 'ffa', teams: teams || 2 };
-        Net.nr.presence(Object.assign(Net.look(), { ph: 'play', ro: Net.roster, cfg: Net.cfg, g: { tl: A.time, end: 0 } })).catch(() => { });
+        Net.nr.presence(Object.assign(Net.look(), { ph: 'play', gm: 'arena', ro: Net.roster, cfg: Net.cfg, g: { tl: A.time, end: 0 } })).catch(() => { });
         App.go('arena', { go: 1, net: 1 });
       };
       add(h('small', {}, 'Du bist Gastgeber: Spieler, Freunde, Stärke und Zeit stellst du oben ein.'), go, leaveB);
@@ -9002,7 +9010,7 @@ function arenaOnlineCard(g0) {
   /* follow the host into the game */
   const check = () => {
     if (!App.alive(g0)) return; const hp = Net.hostPresence();
-    if (hp && !Net.isHost() && hp.ph === 'play' && hp.ro && hp.ro.pl.some(x => x.id === Net.myId()) && hp.g && !hp.g.end) { Net.roster = hp.ro; Net.cfg = hp.cfg; App.go('arena', { go: 1, net: 1 }); return; }
+    if (hp && !Net.isHost() && hp.ph === 'play' && (!hp.gm || hp.gm === 'arena') && hp.ro && hp.ro.pl.some(x => x.id === Net.myId()) && hp.g && !hp.g.end) { Net.roster = hp.ro; Net.cfg = hp.cfg; App.go('arena', { go: 1, net: 1 }); return; }
     paint();
   };
   unsub = Net.on(check); App.clean.push(() => { if (unsub) unsub(); });
@@ -9060,6 +9068,239 @@ const FamilySave = {
     if (qc && qc !== this.code()) { try { const ch = await this.join(qc); toast('☁️ Familien-Code verbunden'); if (ch && App.cur === 'start') App.go('start'); } catch (e) { toast('Familien-Code nicht gefunden'); } return; }
     if (this.code()) { try { const ch = await this.sync(); if (ch && App.cur === 'start') App.go('start'); } catch (e) { } }
   }
+};
+
+/* ======================= Zusammen spielen: room list (open / secret), game picker, everyone plays the same game with a live board ======================= */
+const TOG_GAMES = ['arena', 'quiz', 'blasen', 'anlaut', 'memory', 'gold', 'bd', 'perlen', 'silben', 'hoer', 'bauen', 'teams', 'blitz', 'satzbild', 'quatsch', 'raetsel', 'strasse', 'flug', 'jagd', 'wortweg', 'turm'];
+const togGames = () => TOG_GAMES.filter(id => GAME[id] && GAME_IMPL[id]);
+const roomCol = code => { let x = 0; for (const c of String(code)) x = (x * 31 + c.charCodeAt(0)) >>> 0; return NET_COLS[x % NET_COLS.length]; };
+
+/* the room list: hosts of OPEN rooms put a small ad into a shared lobby (Claude: the page's own room; website: one lobby channel) */
+const NetDir = {
+  r: null, unsub: null, list: [], fns: [], _last: null,
+  async open() {
+    if (this.r) return this.r;
+    const room = await Net.getRoom(); if (!room) return null;
+    try { this.r = Net.supa ? await room.join('lobby') : room; } catch (e) { this.r = null; return null; }
+    if (!this.r || typeof this.r.onPeers !== 'function' || typeof this.r.presence !== 'function') { this.r = null; return null; }
+    this.unsub = this.r.onPeers(() => this.scan());
+    this.scan(); this.ad();
+    return this.r;
+  },
+  scan() {
+    const seen = {};
+    this.list = (this.r ? this.r.peers() : []).filter(p => p.presence && p.presence.fad && p.presence.fad.code)
+      .map(p => Object.assign({ me: !!p.isMe }, p.presence.fad))
+      .filter(a => { if (seen[a.code]) return false; seen[a.code] = 1; return true; })
+      .sort((a, b) => (a.play ? 1 : 0) - (b.play ? 1 : 0) || (b.t || 0) - (a.t || 0));
+    this.fns.forEach(f => { try { f(); } catch (e) { } });
+  },
+  ad() {
+    if (!this.r) return;
+    const mine = !!(Net.nr && Net.isHost() && Net.open !== false);
+    const hp = Net.hostPresence();
+    const fad = mine ? { code: Net.code, nm: Net.look().nm, n: Net.peers().length, gm: Net.gm || 'arena', play: !!(hp && hp.ph === 'play'), t: Date.now() } : null;
+    const key = JSON.stringify(fad && Object.assign({}, fad, { t: 0 }));
+    if (key === this._last) return; this._last = key;
+    try { const pr = this.r.presence({ fad }); if (pr && pr.catch) pr.catch(() => { }); } catch (e) { }
+  },
+  on(f) { this.fns.push(f); return () => { this.fns = this.fns.filter(x => x !== f); }; },
+  async close() {
+    if (!this.r) return;
+    const r = this.r; this.r = null; this._last = null;
+    try { r.presence({ fad: null }); } catch (e) { }
+    if (this.unsub) { try { this.unsub(); } catch (e) { } this.unsub = null; }
+    if (Net.supa) { try { await r.leave(); } catch (e) { } }
+  }
+};
+
+/* together game: publish my progress, read everyone's */
+Net.togPub = function (tg) { if (!this.nr) return; const pr = this.nr.presence(Object.assign(this.look(), { ph: 'play', gm: this.gm, tg })); if (pr && pr.catch) pr.catch(() => { }); };
+Net.startTog = function (gm) {
+  const ppl = this.peers().sort((a, b) => (a.pr.jt || 0) - (b.pr.jt || 0)).slice(0, 8);
+  const pl = ppl.map((p, i) => ({ id: p.id, nm: p.pr.nm, col: NET_COLS[i % NET_COLS.length] }));
+  this.gm = gm; this.roster = { pl, tog: 1 };
+  const pr = this.nr.presence(Object.assign(this.look(), { ph: 'play', gm, t0: Date.now(), ro: this.roster, g: { end: 0 }, tg: { i: 0, n: 0, st: 0, done: 0 } })); if (pr && pr.catch) pr.catch(() => { });
+};
+function togRows() {
+  const hp = Net.hostPresence() || {}; const me = Net.myId();
+  const byId = {}; Net.peers().forEach(p => { byId[p.id] = p.pr; });
+  const ro = (hp.ro && hp.ro.pl && hp.ro.pl.length) ? hp.ro.pl : Net.peers().map((p, i) => ({ id: p.id, nm: p.pr.nm, col: NET_COLS[i % NET_COLS.length] }));
+  return ro.map((pl, i) => { const pr = byId[pl.id]; return { id: pl.id, nm: pl.nm || (pr && pr.nm) || 'Spieler', col: pl.col || NET_COLS[i % NET_COLS.length], me: pl.id === me, gone: !pr, tg: (pr && pr.tg) || null }; });
+}
+function TogBar(R) {
+  const el = h('div', { class: 'tog-bar', 'aria-label': 'Mitspieler' });
+  const t0 = Date.now();
+  const cur = () => ({ i: R.i, n: R.n, st: R.stars, done: R.done ? 1 : 0, ms: R.doneMs || 0 });
+  const paint = () => {
+    el.innerHTML = '';
+    togRows().forEach(r => {
+      const tg = r.me ? cur() : r.tg; const pct = tg && tg.n ? Math.min(100, Math.round(100 * tg.i / tg.n)) : 0;
+      el.appendChild(h('div', { class: 'tog-row' + (r.me ? ' me' : '') + (r.gone ? ' gone' : '') + (tg && tg.done ? ' done' : ''), style: { '--c': r.col } },
+        h('b', { class: 'tog-nm' }, r.nm + (r.me ? ' (du)' : '')),
+        h('span', { class: 'tog-track' }, h('i', { style: { width: pct + '%' } })),
+        h('span', { class: 'tog-st' }, '⭐ ' + ((tg && tg.st) || 0) + (tg && tg.done ? ' 🏁' : r.gone ? ' 💤' : ''))));
+    });
+  };
+  const pub = () => { if (R.done) { const hp = Net.hostPresence(); Net.togDone = hp && hp.t0; } Net.togPub(cur()); paint(); };
+  const un = Net.on(paint); App.clean.push(un);
+  pub();
+  return { el, pub, paint, t0 };
+}
+function togEnsure(R) {
+  if (R.tog || !(App.params && App.params.tog) || !Net.nr) return R.tog || null;
+  R.tog = TogBar(R);
+  if (R.dots && R.dots.isConnected) R.dots.after(R.tog.el); else { const s = $('#stage .screen'); if (s) s.prepend(R.tog.el); }
+  return R.tog;
+}
+/* ranking on the end screen: finished first (more stars, then faster), live until everyone is done */
+function togRanking(R) {
+  const box = h('div', { class: 'tog-rank' });
+  const MED = ['🥇', '🥈', '🥉'];
+  const paint = () => {
+    const rows = togRows().map(r => Object.assign(r, { tg: r.me ? { i: R.i, n: R.n, st: R.stars, done: 1, ms: R.doneMs || 0 } : r.tg }));
+    rows.sort((a, b) => ((b.tg && b.tg.done) ? 1 : 0) - ((a.tg && a.tg.done) ? 1 : 0) || ((b.tg && b.tg.st) || 0) - ((a.tg && a.tg.st) || 0) || ((a.tg && a.tg.ms) || 9e9) - ((b.tg && b.tg.ms) || 9e9));
+    const allDone = rows.every(r => r.gone || (r.tg && r.tg.done));
+    box.innerHTML = '';
+    box.append(h('b', { class: 'tog-rank-t' }, allDone ? '🏆 Ergebnis' : '⏳ Die anderen spielen noch …'));
+    rows.forEach((r, i) => {
+      const done = r.tg && r.tg.done;
+      box.appendChild(h('div', { class: 'tog-rank-row' + (r.me ? ' me' : ''), style: { '--c': r.col } },
+        h('span', { class: 'tog-med' }, done ? (MED[i] || (i + 1) + '.') : '…'),
+        h('b', {}, r.nm + (r.me ? ' (du)' : '')),
+        h('span', { class: 'tog-st' }, '⭐ ' + ((r.tg && r.tg.st) || 0)),
+        h('small', {}, done ? (r.tg.ms ? Math.round(r.tg.ms / 1000) + ' s' : '') : r.gone ? 'weg' : (r.tg && r.tg.n ? r.tg.i + '/' + r.tg.n : 'spielt'))));
+    });
+    if (allDone && !box._cheered) { box._cheered = 1; const me = rows.findIndex(r => r.me); if (me === 0) { AE.play('win'); FX.confetti(70); } else AE.play('star'); }
+  };
+  const un = Net.on(paint); App.clean.push(un);
+  paint();
+  return box;
+}
+
+/* ---------- the screen ---------- */
+SCREENS.online = (stage, params) => {
+  const g0 = App.gen, A = arenaState();
+  Bar.game('Zusammen spielen');
+  Nur.screen = null;
+  const scr = h('div', { class: 'screen online' });
+  const body = h('div', { class: 'on-body' });
+  scr.append(h('div', { class: 'on-head' }, h('h1', { class: 'on-title' }, '🌐 Zusammen spielen'), h('p', { class: 'on-sub' }, 'Raum auf, Spiel aussuchen – alle spielen gleichzeitig und sehen, wer vorne ist.')), body);
+  stage.appendChild(scr);
+  let pgen = 0, dirOn = false, unDir = null;
+  const lvlName = v => ({ 1: 'Leicht', 2: 'Mittel', 3: 'Profi', 4: 'Wie ich' })[v] || 'Wie ich';
+  const gName = id => (GAME[id] && GAME[id].name) || id;
+  const icon = id => h('span', { class: 'on-gi', html: gameIcon(id) });
+  const sec = (cls, title, ...kids) => h('section', { class: 'on-sec ' + cls }, h('h2', {}, title), ...kids);
+  const nameField = () => { const inp = h('input', { class: 'on-in', type: 'text', maxlength: '14', value: A.netName || (S.name || '').trim(), placeholder: 'Dein Name' }); inp.onchange = () => { A.netName = inp.value.trim().slice(0, 14); Store.save(); }; return inp; };
+  async function paint() {
+    if (!App.alive(g0)) return;
+    const my = ++pgen;
+    if (!body.childNodes.length) body.append(h('p', { class: 'on-wait' }, '⏳ Verbindung wird geprüft …'));
+    const r = await Net.getRoom();
+    if (my !== pgen || !App.alive(g0)) return;
+    if (!r) {
+      body.innerHTML = '';
+      if (FUNKEL_SITE) { body.append(sec('why', '⚠️ Keine Verbindung', h('p', {}, 'Prüfe das Internet und versuche es nochmal.'), h('button', { class: 'btn', onclick: () => { Net.resetRoom(); body.innerHTML = ''; paint(); } }, '🔄 Nochmal prüfen'))); return; }
+      const why = await Net.why(); if (my !== pgen || !App.alive(g0)) return;
+      const MSG = { top: 'Diese Seite ist nicht im Claude-Fenster geöffnet. Öffne sie in Claude (angemeldet).', out: 'Auf diesem Gerät bist du nicht bei Claude angemeldet. Tippe oben rechts auf „Anmelden“ – dann geht es genau hier.', denied: 'Online ist für diese Seite ausgeschaltet.', wait: 'Claude hat Online gerade nicht freigegeben.' }[why];
+      const row = h('div', { class: 'on-row' });
+      if (why === 'top') row.append(h('a', { class: 'btn gold', href: ARTIFACT_URL, target: '_blank', rel: 'noopener' }, '👑 In Claude öffnen'));
+      if (why === 'denied') row.append(h('button', { class: 'btn gold', onclick: async () => { try { const P = await window.claude.use('permissions'); if (P) { const st = await P.request(['room']); if (st && st.room === 'denied') await P.manage(); } } catch (e) { } Net.resetRoom(); paint(); } }, '✅ Erlauben'));
+      row.append(h('button', { class: 'btn soft', onclick: () => { Net.resetRoom(); body.innerHTML = ''; paint(); } }, '🔄 Nochmal prüfen'));
+      body.append(sec('why', '⚠️ Online geht hier gerade nicht', h('p', {}, MSG), row));
+      return;
+    }
+    if (!dirOn) { dirOn = true; NetDir.open().then(d => { if (d && App.alive(g0)) { unDir = NetDir.on(() => { if (!Net.nr) paint(); }); paint(); } }); }
+    NetDir.ad();
+    body.innerHTML = '';
+    if (!Net.nr) paintOut(); else paintIn();
+  }
+  /* ---- not in a room: list + create + code ---- */
+  function paintOut() {
+    const nameIn = nameField();
+    const list = h('div', { class: 'on-list' });
+    const rooms = NetDir.list.filter(a => !a.me);
+    if (!NetDir.r) list.append(h('p', { class: 'on-empty' }, '⏳ Räume werden gesucht …'));
+    else if (!rooms.length) list.append(h('p', { class: 'on-empty' }, '✨ Gerade ist kein offener Raum da. Mach selbst einen auf!'));
+    rooms.forEach(a => {
+      const b = h('button', { class: 'on-room' + (a.play ? ' busy' : ''), type: 'button', style: { '--c': roomCol(a.code) } },
+        icon(a.gm || 'arena'),
+        h('span', { class: 'on-room-t' }, h('b', {}, (a.nm || 'Jemand') + 's Raum'), h('small', {}, gName(a.gm || 'arena') + ' · ' + (a.n || 1) + ' ' + ((a.n || 1) === 1 ? 'Spieler' : 'Spieler'))),
+        h('span', { class: 'on-room-go' }, a.play ? '🎮 spielt' : 'Mitspielen ▶'));
+      b.onclick = async () => { unlockAudio(); A.netName = nameIn.value.trim().slice(0, 14); Store.save(); b.disabled = true; try { await Net.join(a.code); AE.play('ok'); } catch (e) { toast('Das hat nicht geklappt'); } paint(); };
+      list.appendChild(b);
+    });
+    let open = true;
+    const segO = h('button', { class: 'on-seg on', type: 'button' }, '🔓 Offen', h('small', {}, 'alle sehen ihn'));
+    const segS = h('button', { class: 'on-seg', type: 'button' }, '🔒 Geheim', h('small', {}, 'nur mit Code'));
+    segO.onclick = () => { open = true; segO.classList.add('on'); segS.classList.remove('on'); AE.play('tap'); };
+    segS.onclick = () => { open = false; segS.classList.add('on'); segO.classList.remove('on'); AE.play('tap'); };
+    const mk = h('button', { class: 'btn gold on-big', type: 'button' }, '✨ Raum erstellen');
+    mk.onclick = async () => { unlockAudio(); A.netName = nameIn.value.trim().slice(0, 14); Store.save(); mk.disabled = true; Net.open = open; Net.gm = Net.gm || 'quiz'; try { await Net.join(Net.newCode()); AE.play('unlock'); } catch (e) { toast('Das hat nicht geklappt. Bitte nochmal.'); } mk.disabled = false; paint(); };
+    const codeIn = h('input', { class: 'on-in code', type: 'text', maxlength: '9', placeholder: 'ROSA-42', autocapitalize: 'characters' });
+    try { const q = new URLSearchParams(location.search).get('room'); if (q) codeIn.value = Net.clean(q); } catch (e) { }
+    const jn = h('button', { class: 'btn on-big', type: 'button' }, '🔑 Beitreten');
+    jn.onclick = async () => { unlockAudio(); A.netName = nameIn.value.trim().slice(0, 14); Store.save(); if (!Net.clean(codeIn.value)) { toast('Bitte den Code eingeben'); return; } jn.disabled = true; try { await Net.join(codeIn.value); AE.play('ok'); } catch (e) { toast('Raum nicht gefunden'); } jn.disabled = false; paint(); };
+    body.append(
+      sec('me', '1 · Dein Name', nameIn),
+      sec('rooms', '2 · Offene Räume', list),
+      h('div', { class: 'on-two' },
+        sec('new', '✨ Neuer Raum', h('div', { class: 'on-segs' }, segO, segS), mk),
+        sec('code', '🔑 Geheimer Raum', h('p', {}, 'Code vom Gastgeber eingeben:'), codeIn, jn)));
+  }
+  /* ---- in a room ---- */
+  function paintIn() {
+    const ps = Net.peers().sort((a, b) => (a.pr.jt || 0) - (b.pr.jt || 0)); const host = Net.hostPeer(); const amHost = Net.isHost();
+    const hp = host ? host.pr : {};
+    const gm = amHost ? (Net.gm || 'quiz') : (hp.gm || 'quiz');
+    const isOpen = amHost ? Net.open !== false : hp.open !== false;
+    const head = h('div', { class: 'on-roomhead', style: { '--c': roomCol(Net.code) } },
+      h('div', {}, h('small', {}, isOpen ? '🔓 Offener Raum – alle sehen ihn in der Liste' : '🔒 Geheimer Raum – nur mit Code'), h('b', { class: 'on-code' }, Net.code)),
+      amHost ? h('button', { class: 'btn soft small', onclick: () => { Net.open = !isOpen; Net.setLobby(); NetDir._last = null; NetDir.ad(); AE.play('tap'); paint(); } }, isOpen ? '🔒 Geheim machen' : '🔓 Offen machen') : null);
+    const copy = h('button', { class: 'btn soft small', onclick: () => { const u = FUNKEL_SITE ? location.origin + location.pathname + '?room=' + encodeURIComponent(Net.code) : Net.code; try { navigator.clipboard.writeText(u).then(() => toast(FUNKEL_SITE ? 'Link kopiert' : 'Code kopiert')).catch(() => toast(u)); } catch (e) { toast(u); } } }, FUNKEL_SITE ? '🔗 Einladungs-Link kopieren' : '📋 Code kopieren');
+    const players = h('div', { class: 'on-players' }, ...ps.map((p, i) => h('span', { class: 'on-pl' + (p.id === Net.myId() ? ' me' : ''), style: { '--c': NET_COLS[i % NET_COLS.length] } },
+      h('b', {}, (p.pr.nm || 'Spieler') + (p.id === Net.myId() ? ' (du)' : '')), host && host.id === p.id ? h('small', {}, '👑 Gastgeber') : h('small', {}, p.pr.ph === 'play' ? '🎮 spielt' : 'bereit'))));
+    const grid = h('div', { class: 'on-games' + (amHost ? '' : ' ro') });
+    togGames().forEach(id => {
+      const b = h('button', { class: 'on-game' + (id === gm ? ' on' : ''), type: 'button', disabled: !amHost && id !== gm ? true : null }, icon(id), h('b', {}, gName(id)), id === 'arena' ? h('small', {}, '3D Autoscooter') : null);
+      if (amHost) b.onclick = () => { Net.gm = id; Net.setLobby(); NetDir.ad(); AE.play('pop'); paint(); };
+      grid.appendChild(b);
+    });
+    const leave = h('button', { class: 'btn soft', onclick: async () => { await Net.leave(); NetDir.ad(); paint(); } }, 'Raum verlassen');
+    let action;
+    if (hp && hp.ph === 'play' && hp.ro && !hp.ro.pl.some(x => x.id === Net.myId())) action = h('p', { class: 'on-wait' }, '⏳ Gerade läuft ein Spiel. Beim nächsten bist du dabei!');
+    else if (amHost) {
+      const go = h('button', { class: 'btn gold on-start', type: 'button' }, '🏁 ' + gName(gm) + ' starten');
+      go.onclick = () => {
+        unlockAudio(); AE.play('tap');
+        if (gm === 'arena') { toast('Stell die Arena ein und tippe auf „Online-Spiel starten“'); App.go('arena', { invite: 1 }); return; }
+        Net.startTog(gm); App.go(gm, { tog: 1, net: 1 });
+      };
+      action = h('div', { class: 'on-row' }, go, leave);
+    } else action = h('div', { class: 'on-row' }, h('p', { class: 'on-wait' }, '⏳ ' + ((hp && hp.nm) || 'Der Gastgeber') + ' sucht das Spiel aus und startet …'), leave);
+    const lbSeg = h('div', { class: 'on-segs small' }); [[1, 'Leicht'], [2, 'Mittel'], [3, 'Profi'], [4, 'Wie ich']].forEach(([v, t]) => { const b = h('button', { class: 'on-seg' + ((A.leaveBot || 4) === v ? ' on' : ''), type: 'button' }, t); b.onclick = () => { A.leaveBot = v; Store.save(); Net.setLobby(); AE.play('tap'); paint(); }; lbSeg.appendChild(b); });
+    body.append(head, h('div', { class: 'on-row' }, copy),
+      sec('pl', '👑 Im Raum (' + ps.length + ')', players),
+      sec('gm', amHost ? '🎲 Such ein Spiel aus' : '🎲 Das Spiel', grid),
+      action,
+      gm === 'arena' ? sec('lb', '⚙️ Arena: wenn ich weggehe, fährt ein Bot für mich', lbSeg) : null);
+  }
+  /* follow the host into the game */
+  const check = () => {
+    if (!App.alive(g0)) return;
+    NetDir.ad();
+    const hp = Net.hostPresence();
+    if (hp && !Net.isHost() && hp.ph === 'play' && hp.ro && hp.ro.pl.some(x => x.id === Net.myId()) && !(hp.g && hp.g.end) && !(hp.t0 && hp.t0 === Net.togDone)) {
+      if (hp.gm && hp.gm !== 'arena') { Net.gm = hp.gm; Net.roster = hp.ro; App.go(hp.gm, { tog: 1, net: 1 }); return; }
+      if (hp.cfg) { Net.roster = hp.ro; Net.cfg = hp.cfg; App.go('arena', { go: 1, net: 1 }); return; }
+    }
+    paint();
+  };
+  const unNet = Net.on(check);
+  App.clean.push(() => { unNet(); if (unDir) unDir(); NetDir.close(); });
+  if (Net.nr) Net.setLobby();
+  paint();
 };
 
 /* ======================= bots everywhere + Quiz-Duell (Kahoot-style) ======================= */

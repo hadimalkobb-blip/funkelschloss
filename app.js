@@ -8784,7 +8784,7 @@ const SupaRoom = {
   load() {
     if (window.supabase && window.supabase.createClient) return Promise.resolve(window.supabase);
     if (this._lp) return this._lp;
-    this._lp = new Promise((res, rej) => { const s = document.createElement('script'); s.src = SUPA.lib; s.onload = () => window.supabase ? res(window.supabase) : rej(new Error('lib')); s.onerror = () => { this._lp = null; rej(new Error('lib')); }; document.head.appendChild(s); });
+    this._lp = new Promise((res, rej) => { const s = document.createElement('script'); s.src = FUNKEL_SITE ? ASSET_BASE + 'lib/supabase.min.js' : SUPA.lib; s.onload = () => window.supabase ? res(window.supabase) : rej(new Error('lib')); s.onerror = () => { this._lp = null; rej(new Error('lib')); }; document.head.appendChild(s); });
     return this._lp;
   },
   async init() {
@@ -8869,7 +8869,7 @@ const Net = {
   async leave() { if (this.unsub) { try { this.unsub(); } catch (e) { } this.unsub = null; } if (this.nr) { const n = this.nr; this.nr = null; try { await n.leave(); } catch (e) { } } this.code = null; this.listeners.forEach(f => { try { f(); } catch (e) { } }); },
   on(f) { this.listeners.push(f); return () => { this.listeners = this.listeners.filter(x => x !== f); }; },
   look() {
-    const A = arenaState(); return { app: 'arena', id: this.myId(), nm: (A.netName || childName() || 'Ich').slice(0, 14), paint: A.paint, hat: A.hat, trail: A.trail, horn: A.horn, lb: A.leaveBot || 4, jt: this.jt, team: A.netTeam || 0 };
+    const A = arenaState(); return { app: 'arena', id: this.myId(), nm: (A.netName || (S.name || '').trim() || 'Gast').slice(0, 14), paint: A.paint, hat: A.hat, trail: A.trail, horn: A.horn, lb: A.leaveBot || 4, jt: this.jt, team: A.netTeam || 0 };
   },
   setLobby(extra) { if (!this.nr) return; const A = arenaState(); const P = Object.assign(this.look(), { ph: 'lobby', c: null, h: null, tk: null, fx: null, emo: null, g: null, ro: null, cfg: null, cfgp: this.isHost() ? { mode: A.mode, teams: A.teams, ts: A.teamSize, bots: A.bots, lvl: A.level, time: A.time, bp: this.plan() } : null }, extra || {}); this.nr.presence(P).catch(() => { }); },
   peers() { if (!this.nr) return []; return this.nr.peers().filter(p => p.presence && p.presence.app === 'arena' && p.presence.id).map(p => ({ id: p.presence.id, pr: p.presence, peer: p })); },
@@ -8945,7 +8945,7 @@ function arenaOnlineCard(g0) {
     }
     box.classList.remove('off');
     if (!Net.nr) {
-      const nameIn = h('input', { class: 'ar-in', type: 'text', maxlength: '14', value: A.netName || childName() || '', placeholder: 'Dein Name' });
+      const nameIn = h('input', { class: 'ar-in', type: 'text', maxlength: '14', value: A.netName || (S.name || '').trim(), placeholder: 'Dein Name' });
       nameIn.onchange = () => { A.netName = nameIn.value.trim().slice(0, 14); Store.save(); };
       const codeIn = h('input', { class: 'ar-in code', type: 'text', maxlength: '9', placeholder: 'ROSA-42', autocapitalize: 'characters' });
       try { const q = new URLSearchParams(location.search).get('room'); if (q && !codeIn.value) codeIn.value = Net.clean(q); } catch (e) { }

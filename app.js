@@ -2485,7 +2485,7 @@ function makeRound(id, n, opts) {
       R.first++; R.streak++; R.stars++; addStars(1, el);
       if (R.streak % 5 === 0) { setTimeout(() => AE.play('combo'), 260); R.stars++; setTimeout(() => addStars(1, el), 420); toast(R.streak + ' richtig hintereinander! +1'); }
     } else R.streak = 0;
-    R.i++; R.wrongNow = 0; R.paint(); if (R.race) R.race.step(first); if (R.tog) R.tog.pub();
+    R.i++; R.wrongNow = 0; R.paint(); if (R.race) R.race.step(first); if (R.tog) { if (first) R.tog.res(1); else R.tog.pub(); }
     const sp = o.say ? Nur.say(o.say, { keep: false }) : (o.praise === false ? null : (Math.random() < 0.6 ? Nur.praise() : null));
     R.locked = true;
     const minWait = o.wait != null ? o.wait : 950;
@@ -2501,7 +2501,7 @@ function makeRound(id, n, opts) {
   R.bad = (el, key, chosen, okEl, o) => {
     o = o || {};
     if (R.locked || R.done) return;
-    R.wrongNow++; R.misses++; R.streak = 0;
+    R.wrongNow++; R.misses++; R.streak = 0; if (R.tog && R.wrongNow === 1) R.tog.res(0);
     if (key && R.wrongNow === 1) Brain.rec(key, false, chosen);
     if (el && el.classList) { el.classList.remove('no'); void el.offsetWidth; el.classList.add('no'); }
     AE.play('no');
@@ -2729,6 +2729,7 @@ function newProfileSheet() {
 }
 function enterProfile(id, init) {
   CUR = id; Store.load(id);
+  if (FUNKEL_SITE && !S.site500) { S.site500 = 1; if ((S.earned || 0) < 500) S.earned = 500; if ((S.stars || 0) < 500) S.stars = 500; }
   try { localStorage.setItem('funkelschloss.last', id); } catch (e) { }
   const p = Profiles.get(id);
   if (init) { S.name = init.name; S.nameAr = init.nameAr; S.world = init.world; }
@@ -8939,7 +8940,7 @@ const Net = {
   look() {
     const A = arenaState(); return { app: 'arena', id: this.myId(), nm: (A.netName || (S.name || '').trim() || 'Gast').slice(0, 14), paint: A.paint, hat: A.hat, trail: A.trail, horn: A.horn, lb: A.leaveBot || 4, jt: this.jt, team: A.netTeam || 0 };
   },
-  setLobby(extra) { if (!this.nr) return; const A = arenaState(); const P = Object.assign(this.look(), { ph: 'lobby', c: null, h: null, tk: null, fx: null, emo: null, g: null, ro: null, cfg: null, tg: null, t0: null, gm: this.isHost() ? (this.gm || 'arena') : null, open: this.isHost() ? this.open !== false : null, cfgp: this.isHost() ? { mode: A.mode, teams: A.teams, ts: A.teamSize, bots: A.bots, lvl: A.level, time: A.time, bp: this.plan() } : null }, extra || {}); this.nr.presence(P).catch(() => { }); },
+  setLobby(extra) { if (!this.nr) return; const A = arenaState(); const P = Object.assign(this.look(), { ph: 'lobby', c: null, h: null, tk: null, fx: null, emo: null, g: null, ro: null, cfg: null, tg: null, t0: null, gm: this.isHost() ? (this.gm || 'arena') : null, open: this.isHost() ? this.open !== false : null, bn: this.isHost() ? (this.botsN || 0) : null, bp: this.isHost() ? this.plan() : null, cfgp: this.isHost() ? { mode: A.mode, teams: A.teams, ts: A.teamSize, bots: A.bots, lvl: A.level, time: A.time, bp: this.plan() } : null }, extra || {}); this.nr.presence(P).catch(() => { }); },
   peers() { if (!this.nr) return []; return this.nr.peers().filter(p => p.presence && p.presence.app === 'arena' && p.presence.id).map(p => ({ id: p.presence.id, pr: p.presence, peer: p })); },
   hostPeer() { const ps = this.peers(); if (!ps.length) return null; return ps.slice().sort((a, b) => ((a.pr.jt || 9e15) - (b.pr.jt || 9e15)) || (a.id < b.id ? -1 : 1))[0]; },
   isHost() { const h = this.hostPeer(); return !h || h.id === this.myId(); },
@@ -9195,37 +9196,101 @@ const NetDir = {
 };
 
 /* together game: publish my progress, read everyone's */
+/* ---------- together core: avatars, right/wrong flashes, quick chat, bots ---------- */
+const TOG_MAX = { memory: 4, anlaut: 6, arena: 6 };
+const togMax = gm => TOG_MAX[gm] || 8;
+/* quick chat: short funny words + symbols (no faces), each with its own sound */
+const TOG_CHAT = [['Haha!', '🎉', 'clap'], ['Grrr!', '💢', 'buzz'], ['Oh nein!', '💥', 'boom'], ['Schnell!', '⚡', 'whoosh'], ['Super!', '⭐', 'star'], ['Ich gewinne!', '🏆', 'chime'],
+  ['Warte nur!', '🔥', 'fire'], ['Pech!', '🍀', 'drop'], ['Wow!', '✨', 'sparkle'], ['Hihi!', '🎈', 'pop'], ['Juhu!', '🎊', 'clap'], ['Hilfe!', '🆘', 'ring'], ['Lieb dich!', '❤️', 'bell'], ['Zzz…', '💤', 'snow'], ['Oho!', '❗', 'tick'], ['Hä?', '❓', 'click']];
 Net.togPub = function (tg) { if (!this.nr) return; const pr = this.nr.presence(Object.assign(this.look(), { ph: 'play', gm: this.gm, tg })); if (pr && pr.catch) pr.catch(() => { }); };
+Net.chatSeq = 0;
+Net.chatPub = function (i) { if (!this.nr) return; const pr = this.nr.presence({ ch: [i, ++this.chatSeq] }); if (pr && pr.catch) pr.catch(() => { }); };
 Net.startTog = function (gm) {
-  const ppl = this.peers().sort((a, b) => (a.pr.jt || 0) - (b.pr.jt || 0)).slice(0, 8);
+  const max = togMax(gm);
+  const ppl = this.peers().sort((a, b) => (a.pr.jt || 0) - (b.pr.jt || 0)).slice(0, max);
   const pl = ppl.map((p, i) => ({ id: p.id, nm: p.pr.nm, col: NET_COLS[i % NET_COLS.length] }));
-  this.gm = gm; this.roster = { pl, tog: 1 };
-  const pr = this.nr.presence(Object.assign(this.look(), { ph: 'play', gm, t0: Date.now(), ro: this.roster, g: { end: 0 }, tg: { i: 0, n: 0, st: 0, done: 0 } })); if (pr && pr.catch) pr.catch(() => { });
+  const bt = this.planBots().slice(0, Math.max(0, Math.min(this.botsN || 0, max - pl.length))).map(b => b.id);
+  this.gm = gm; this.roster = { pl, bt, tog: 1, lvl: this.botLvl || 2 };
+  const pr = this.nr.presence(Object.assign(this.look(), { ph: 'play', gm, t0: Date.now(), ro: this.roster, g: { end: 0 }, tg: { i: 0, n: 0, st: 0, done: 0 }, bots: null, bs: null, kq: null, kp: null, kb: null, ka: null, md: null, ms: null, mv: null })); if (pr && pr.catch) pr.catch(() => { });
 };
 function togRows() {
   const hp = Net.hostPresence() || {}; const me = Net.myId();
   const byId = {}; Net.peers().forEach(p => { byId[p.id] = p.pr; });
   const ro = (hp.ro && hp.ro.pl && hp.ro.pl.length) ? hp.ro.pl : Net.peers().map((p, i) => ({ id: p.id, nm: p.pr.nm, col: NET_COLS[i % NET_COLS.length] }));
-  return ro.map((pl, i) => { const pr = byId[pl.id]; return { id: pl.id, nm: pl.nm || (pr && pr.nm) || 'Spieler', col: pl.col || NET_COLS[i % NET_COLS.length], me: pl.id === me, gone: !pr, tg: (pr && pr.tg) || null }; });
+  const rows = ro.map((pl, i) => { const pr = byId[pl.id]; return { id: pl.id, nm: pl.nm || (pr && pr.nm) || 'Spieler', col: pl.col || NET_COLS[i % NET_COLS.length], me: pl.id === me, gone: !pr, tg: (pr && pr.tg) || null, ch: pr && pr.ch }; });
+  const bst = hp.bots || [];
+  ((hp.ro && hp.ro.bt) || []).forEach(bid => { const b = QUIZ_BOTS.find(x => x.id === bid); const st = bst.find(x => x.id === bid) || null; rows.push({ id: 'b:' + bid, bot: b, nm: b ? b.name : bid, col: (b && b.col) || '#9b6bff', me: false, gone: false, tg: st, ch: st && st.ch }); });
+  return rows;
 }
+const togAvatar = (r, cls) => h('span', { class: 'tp-av ' + (cls || ''), style: { '--c': r.col } }, r.bot ? photoEl(r.bot.img, r.bot.emo, 'tp-img') : h('b', { class: 'tp-ini' }, String(r.nm || '?').trim().charAt(0).toUpperCase() || '?'));
 function TogBar(R) {
-  const el = h('div', { class: 'tog-bar', 'aria-label': 'Mitspieler' });
-  const t0 = Date.now();
-  const cur = () => ({ i: R.i, n: R.n, st: R.stars, done: R.done ? 1 : 0, ms: R.doneMs || 0 });
+  const el = h('div', { class: 'tog-strip', 'aria-label': 'Mitspieler' });
+  const row = h('div', { class: 'tog-row2' });
+  const chatB = h('button', { class: 'tog-chatb', type: 'button', 'aria-label': 'Nachricht' }, '💬');
+  const pal = h('div', { class: 'tog-pal', hidden: true });
+  TOG_CHAT.forEach((c, i) => { const b = h('button', { type: 'button', class: 'tog-pb' }, h('span', {}, c[1]), h('small', {}, c[0])); b.onclick = () => send(i); pal.appendChild(b); });
+  chatB.onclick = () => { pal.hidden = !pal.hidden; AE.play('tap'); };
+  el.append(row, chatB, pal);
+  const t0 = Date.now(); let rs = 0, lastR = null, lastSend = 0;
+  const items = {}, seenRs = {}, seenCh = {};
+  const cur = () => { const o = { i: R.i, n: R.n, st: R.stars, done: R.done ? 1 : 0, ms: R.doneMs || 0, r: lastR, rs }; if (R.pts != null) o.pts = R.pts; return o; };
+  function bubble(it, c) { const b = h('div', { class: 'tp-bub' }, h('span', {}, c[1]), ' ', c[0]); it.appendChild(b); setTimeout(() => b.remove(), 2600); }
+  function flash(it, ok) { it.classList.remove('fok', 'fno'); void it.offsetWidth; it.classList.add(ok ? 'fok' : 'fno'); const m = h('i', { class: 'tp-mark' }, ok ? '✓' : '✗'); it.appendChild(m); setTimeout(() => m.remove(), 1100); }
+  function send(i) {
+    pal.hidden = true; if (Date.now() - lastSend < 1200) return; lastSend = Date.now();
+    const c = TOG_CHAT[i]; AE.play(c[2]); Net.chatPub(i); const mine = items[Net.myId()]; if (mine) bubble(mine, c);
+    seenCh[Net.myId()] = Net.chatSeq;
+  }
   const paint = () => {
-    el.innerHTML = '';
-    togRows().forEach(r => {
-      const tg = r.me ? cur() : r.tg; const pct = tg && tg.n ? Math.min(100, Math.round(100 * tg.i / tg.n)) : 0;
-      el.appendChild(h('div', { class: 'tog-row' + (r.me ? ' me' : '') + (r.gone ? ' gone' : '') + (tg && tg.done ? ' done' : ''), style: { '--c': r.col } },
-        h('b', { class: 'tog-nm' }, r.nm + (r.me ? ' (du)' : '')),
-        h('span', { class: 'tog-track' }, h('i', { style: { width: pct + '%' } })),
-        h('span', { class: 'tog-st' }, '⭐ ' + ((tg && tg.st) || 0) + (tg && tg.done ? ' 🏁' : r.gone ? ' 💤' : ''))));
+    const rows = togRows();
+    rows.forEach(r => {
+      const tg = r.me ? cur() : r.tg;
+      let it = items[r.id];
+      if (!it) {
+        it = items[r.id] = h('div', { class: 'tp', style: { '--c': r.col } }, togAvatar(r), h('b', { class: 'tp-nm' }), h('span', { class: 'tp-st' }));
+        row.appendChild(it);
+        if (tg && tg.rs != null) seenRs[r.id] = tg.rs; if (r.ch) seenCh[r.id] = r.ch[1];
+      }
+      const pct = tg && tg.n ? Math.min(100, Math.round(100 * tg.i / tg.n)) : 0;
+      it.querySelector('.tp-av').style.setProperty('--p', pct + '%');
+      it.querySelector('.tp-nm').textContent = r.nm + (r.me ? ' (du)' : '');
+      it.querySelector('.tp-st').textContent = (tg && tg.pts != null ? '🏅 ' + tg.pts : '⭐ ' + ((tg && tg.st) || 0)) + (tg && tg.done ? ' 🏁' : r.gone ? ' 💤' : '');
+      it.classList.toggle('me', !!r.me); it.classList.toggle('gone', !!r.gone); it.classList.toggle('done', !!(tg && tg.done));
+      it.classList.toggle('turn', R.turnId === r.id); it.classList.toggle('ans', !!(R.answered && R.answered[r.id]));
+      if (!r.me && tg && tg.rs != null && tg.rs !== seenRs[r.id]) { seenRs[r.id] = tg.rs; if (tg.r != null) { flash(it, tg.r === 1); AE.play(tg.r === 1 ? 'pop' : 'tick'); } }
+      if (!r.me && r.ch && r.ch[1] !== seenCh[r.id]) { seenCh[r.id] = r.ch[1]; const c = TOG_CHAT[r.ch[0]]; if (c) { bubble(it, c); AE.play(c[2]); } }
     });
   };
   const pub = () => { if (R.done) { const hp = Net.hostPresence(); Net.togDone = hp && hp.t0; } Net.togPub(cur()); paint(); };
+  const res = ok => { lastR = ok ? 1 : 0; rs++; const mine = items[Net.myId()]; if (mine) flash(mine, ok); pub(); };
   const un = Net.on(paint); App.clean.push(un);
+  /* bots: the host plays them (progress, right/wrong, emotes, spoken lines); everyone hears their lines */
+  let lastBs = null;
+  const speakBs = () => { const hp = Net.hostPresence() || {}; const bs = hp.bs; if (!bs || (lastBs && bs[3] === lastBs)) return; const first = lastBs === null; lastBs = bs[3]; if (first && !Net.isHost()) return; const L = BOT_LINES[bs[0]] && BOT_LINES[bs[0]][bs[1]]; const ln = L && L[bs[2]]; if (ln) BotTalk.add(bs[0], ln[0], { force: true, ar: ln[1] }); };
+  App.clean.push(Net.on(speakBs));
+  if (Net.isHost() && !R.noSim) {
+    const hp0 = Net.hostPresence() || {}; const bt = (hp0.ro && hp0.ro.bt) || (Net.roster && Net.roster.bt) || [];
+    if (bt.length) {
+      const lvl = (Net.roster && Net.roster.lvl) || 2, acc = [0, 0.55, 0.72, 0.88][lvl], gap = [0, [6000, 9500], [4200, 7000], [2800, 4800]][lvl];
+      const B = bt.map((id, j) => ({ id, i: 0, st: 0, done: 0, ms: 0, r: null, rs: 0, ch: null, next: Date.now() + 2500 + j * 900 + rnd(gap[1] - gap[0]) }));
+      let chs = 0, bsq = 0, nextTalk = Date.now() + 6000 + rnd(5000);
+      App.every(() => {
+        const now = Date.now(); let ch = false;
+        B.forEach(b => {
+          if (b.done || now < b.next) return;
+          const ok = Math.random() < acc; b.r = ok ? 1 : 0; b.rs++; if (ok) { b.i++; b.st++; } ch = true;
+          if (b.i >= (R.n || 8)) { b.done = 1; b.ms = now - t0; }
+          b.next = now + gap[0] + rnd(gap[1] - gap[0]);
+          if (Math.random() < 0.18) b.ch = [ok ? pick([0, 4, 5, 8, 10]) : pick([1, 2, 7, 11]), ++chs];
+        });
+        let bs = null;
+        if (now > nextTalk) { nextTalk = now + 13000 + rnd(9000); const b = pick(bt), cats = ['joke', 'joke', 'joke', 'lead', 'behind', 'pgood', 'think'].filter(c => BOT_LINES[b] && BOT_LINES[b][c] && BOT_LINES[b][c].length); if (cats.length) { const c = pick(cats); bs = [b, c, rnd(BOT_LINES[b][c].length), ++bsq]; } }
+        if (ch || bs) { const pr = Net.nr && Net.nr.presence(Object.assign({ bots: B.map(b => ({ id: b.id, i: b.i, n: R.n || 8, st: b.st, done: b.done, ms: b.ms, r: b.r, rs: b.rs, ch: b.ch })) }, bs ? { bs } : {})); if (pr && pr.catch) pr.catch(() => { }); }
+      }, 500);
+    }
+  }
   pub();
-  return { el, pub, paint, t0 };
+  return { el, pub, paint, res, t0, items };
 }
 function togEnsure(R) {
   if (R.tog || !(App.params && App.params.tog) || !Net.nr) return R.tog || null;
@@ -9233,13 +9298,14 @@ function togEnsure(R) {
   if (R.dots && R.dots.isConnected) R.dots.after(R.tog.el); else { const s = $('#stage .screen'); if (s) s.prepend(R.tog.el); }
   return R.tog;
 }
-/* ranking on the end screen: finished first (more stars, then faster), live until everyone is done */
+/* ranking on the end screen: finished first (more points/stars, then faster), live until everyone is done */
 function togRanking(R) {
   const box = h('div', { class: 'tog-rank' });
   const MED = ['🥇', '🥈', '🥉'];
+  const sc = t => t ? (t.pts != null ? t.pts : (t.st || 0)) : 0;
   const paint = () => {
-    const rows = togRows().map(r => Object.assign(r, { tg: r.me ? { i: R.i, n: R.n, st: R.stars, done: 1, ms: R.doneMs || 0 } : r.tg }));
-    rows.sort((a, b) => ((b.tg && b.tg.done) ? 1 : 0) - ((a.tg && a.tg.done) ? 1 : 0) || ((b.tg && b.tg.st) || 0) - ((a.tg && a.tg.st) || 0) || ((a.tg && a.tg.ms) || 9e9) - ((b.tg && b.tg.ms) || 9e9));
+    const rows = togRows().map(r => Object.assign(r, { tg: r.me ? Object.assign({ i: R.i, n: R.n, st: R.stars, done: 1, ms: R.doneMs || 0 }, R.pts != null ? { pts: R.pts } : {}) : r.tg }));
+    rows.sort((a, b) => ((b.tg && b.tg.done) ? 1 : 0) - ((a.tg && a.tg.done) ? 1 : 0) || sc(b.tg) - sc(a.tg) || ((a.tg && a.tg.ms) || 9e9) - ((b.tg && b.tg.ms) || 9e9));
     const allDone = rows.every(r => r.gone || (r.tg && r.tg.done));
     box.innerHTML = '';
     box.append(h('b', { class: 'tog-rank-t' }, allDone ? '🏆 Ergebnis' : '⏳ Die anderen spielen noch …'));
@@ -9247,8 +9313,8 @@ function togRanking(R) {
       const done = r.tg && r.tg.done;
       box.appendChild(h('div', { class: 'tog-rank-row' + (r.me ? ' me' : ''), style: { '--c': r.col } },
         h('span', { class: 'tog-med' }, done ? (MED[i] || (i + 1) + '.') : '…'),
-        h('b', {}, r.nm + (r.me ? ' (du)' : '')),
-        h('span', { class: 'tog-st' }, '⭐ ' + ((r.tg && r.tg.st) || 0)),
+        h('span', { class: 'tog-rk-p' }, togAvatar(r, 'sm'), h('b', {}, r.nm + (r.me ? ' (du)' : ''))),
+        h('span', { class: 'tog-st' }, (r.tg && r.tg.pts != null ? '🏅 ' + r.tg.pts : '⭐ ' + ((r.tg && r.tg.st) || 0))),
         h('small', {}, done ? (r.tg.ms ? Math.round(r.tg.ms / 1000) + ' s' : '') : r.gone ? 'weg' : (r.tg && r.tg.n ? r.tg.i + '/' + r.tg.n : 'spielt'))));
     });
     if (allDone && !box._cheered) { box._cheered = 1; const me = rows.findIndex(r => r.me); if (me === 0) { AE.play('win'); FX.confetti(70); } else AE.play('star'); }
@@ -9258,7 +9324,6 @@ function togRanking(R) {
   return box;
 }
 
-/* ---------- the screen ---------- */
 SCREENS.online = (stage, params) => {
   const g0 = App.gen, A = arenaState();
   Bar.game('Zusammen spielen');
@@ -9339,11 +9404,22 @@ SCREENS.online = (stage, params) => {
       h('div', {}, h('small', {}, isOpen ? '🔓 Offener Raum – alle sehen ihn in der Liste' : '🔒 Geheimer Raum – nur mit Code'), h('b', { class: 'on-code' }, Net.code)),
       amHost ? h('button', { class: 'btn soft small', onclick: () => { Net.open = !isOpen; Net.setLobby(); NetDir._last = null; NetDir.ad(); AE.play('tap'); paint(); } }, isOpen ? '🔒 Geheim machen' : '🔓 Offen machen') : null);
     const copy = h('button', { class: 'btn soft small', onclick: () => { const u = FUNKEL_SITE ? location.origin + location.pathname + '?room=' + encodeURIComponent(Net.code) : Net.code; try { navigator.clipboard.writeText(u).then(() => toast(FUNKEL_SITE ? 'Link kopiert' : 'Code kopiert')).catch(() => toast(u)); } catch (e) { toast(u); } } }, FUNKEL_SITE ? '🔗 Einladungs-Link kopieren' : '📋 Code kopieren');
-    const players = h('div', { class: 'on-players' }, ...ps.map((p, i) => h('span', { class: 'on-pl' + (p.id === Net.myId() ? ' me' : ''), style: { '--c': NET_COLS[i % NET_COLS.length] } },
-      h('b', {}, (p.pr.nm || 'Spieler') + (p.id === Net.myId() ? ' (du)' : '')), host && host.id === p.id ? h('small', {}, '👑 Gastgeber') : h('small', {}, p.pr.ph === 'play' ? '🎮 spielt' : 'bereit'))));
+    const max = togMax(gm);
+    const nb = amHost ? (Net.botsN || 0) : ((hp.bn) || 0);
+    const botList = Net.planBots(amHost ? null : hp.bp).slice(0, Math.max(0, Math.min(nb, max - ps.length)));
+    const players = h('div', { class: 'on-players' }, ...ps.map((p, i) => h('span', { class: 'on-pl' + (p.id === Net.myId() ? ' me' : '') + (i >= max ? ' out' : ''), style: { '--c': NET_COLS[i % NET_COLS.length] } },
+      togAvatar({ nm: p.pr.nm || 'S', col: NET_COLS[i % NET_COLS.length] }, 'sm'),
+      h('span', {}, h('b', {}, (p.pr.nm || 'Spieler') + (p.id === Net.myId() ? ' (du)' : '')), host && host.id === p.id ? h('small', {}, '👑 Gastgeber') : h('small', {}, i >= max ? 'wartet (voll)' : p.pr.ph === 'play' ? '🎮 spielt' : 'bereit')))),
+      ...botList.map(b => h('span', { class: 'on-pl bot', style: { '--c': b.col || '#9b6bff' } }, togAvatar({ bot: b, nm: b.name, col: b.col }, 'sm'), h('span', {}, h('b', {}, b.name), h('small', {}, '⚙️ Bot')))));
+    let botRow = null;
+    if (amHost && gm !== 'arena') {
+      const segN = h('div', { class: 'on-segs small' }); [0, 1, 2, 3].forEach(v => { const b = h('button', { class: 'on-seg' + ((Net.botsN || 0) === v ? ' on' : ''), type: 'button' }, v ? '+' + v : 'Keine'); b.onclick = () => { Net.botsN = v; Net.setLobby(); AE.play('tap'); paint(); }; segN.appendChild(b); });
+      const segL = h('div', { class: 'on-segs small' }); [[1, 'Leicht'], [2, 'Mittel'], [3, 'Profi']].forEach(([v, tx]) => { const b = h('button', { class: 'on-seg' + ((Net.botLvl || 2) === v ? ' on' : ''), type: 'button' }, tx); b.onclick = () => { Net.botLvl = v; AE.play('tap'); paint(); }; segL.appendChild(b); });
+      botRow = sec('bots', '⚙️ Freunde (Bots) dazu – sie spielen mit und erzählen Witze', segN, segL);
+    }
     const grid = h('div', { class: 'on-games' + (amHost ? '' : ' ro') });
     togGames().forEach(id => {
-      const b = h('button', { class: 'on-game' + (id === gm ? ' on' : ''), type: 'button', disabled: !amHost && id !== gm ? true : null }, icon(id), h('b', {}, gName(id)), id === 'arena' ? h('small', {}, '3D Autoscooter') : null);
+      const b = h('button', { class: 'on-game' + (id === gm ? ' on' : ''), type: 'button', disabled: !amHost && id !== gm ? true : null }, icon(id), h('b', {}, gName(id)), h('small', {}, (id === 'arena' ? '3D · ' : id === 'anlaut' ? 'wie Kahoot · ' : id === 'memory' ? 'abwechselnd · ' : '') + '2–' + togMax(id) + ' Spieler'));
       if (amHost) b.onclick = () => { Net.gm = id; Net.setLobby(); NetDir.ad(); AE.play('pop'); paint(); };
       grid.appendChild(b);
     });
@@ -9367,8 +9443,9 @@ SCREENS.online = (stage, params) => {
       h('small', { class: 'on-diag' }, (FUNKEL_SITE ? 'Server: ' + (SupaRoom.mode === 'lp' ? 'HTTP' : 'WebSocket') : 'Claude-Raum') + ' · Geräte im Raum: ' + raw + ' · Verbindung: ' + (conn ? 'ja' : 'nein') + (Net.err ? ' · Fehler: ' + Net.err : '')),
       !okNet && !FUNKEL_SITE ? h('small', {}, 'Claude-Online verbindet auf diesem Gerät gerade nicht. Seite neu laden; wenn es bleibt: auf der Funkelschloss-Webseite spielen alle ohne Anmeldung zusammen (hadimalkobb-blip.github.io/funkelschloss).') : null);
     body.append(head, status, h('div', { class: 'on-row' }, copy),
-      sec('pl', '👑 Im Raum (' + ps.length + ')', players),
+      sec('pl', '👑 Im Raum (' + ps.length + (nb ? ' + ' + botList.length + ' Bots' : '') + ') · max. ' + max, players),
       sec('gm', amHost ? '🎲 Such ein Spiel aus' : '🎲 Das Spiel', grid),
+      botRow,
       action,
       gm === 'arena' ? sec('lb', '⚙️ Arena: wenn ich weggehe, fährt ein Bot für mich', lbSeg) : null);
   }
@@ -9389,6 +9466,283 @@ SCREENS.online = (stage, params) => {
   if (Net.nr) Net.setLobby();
   paint();
 };
+
+/* ======================= together specials: Anlaut like Kahoot (same question for all, avatars on the chosen card), Memory in turns ======================= */
+const isTog = () => !!(App.params && App.params.tog && Net.nr);
+const wlOf = w => WL.find(o => o.w === w);
+function togPlayers() { return togRows().filter(r => !r.gone || r.bot); }
+function hostPub(o) { if (!Net.nr) return; const pr = Net.nr.presence(o); if (pr && pr.catch) pr.catch(() => { }); }
+
+/* ---------- Anlaut-Rätsel as a live quiz ---------- */
+function buildAnlautQs(d) {
+  const pool = Brain.letterPool(d);
+  const allowT = d >= 2 ? ['sch', 'ei', 'au'] : []; if (d >= 3) allowT.push('pf', 'eu', 'qu');
+  const cands = WL.filter(o => !o.tags.includes('irr') && !o.tags.includes('at')).map(o => ({ o, a: anlautOf(o.w) }))
+    .filter(x => x.a && (x.a.length > 1 ? allowT.includes(x.a) : (pool.includes(x.a) && !'cqxyvß'.includes(x.a) && (d >= 2 || !'äöü'.includes(x.a)))));
+  const byKey = {}; cands.forEach(x => { const k = (x.a.length > 1 ? 'T:' : 'L:') + x.a; (byKey[k] = byKey[k] || []).push(x); });
+  const keys = shuffle(Object.keys(byKey)); const qs = [];
+  for (const k of keys) { if (qs.length >= 8) break; const x = pick(byKey[k]); qs.push(Object.assign({ k }, x)); }
+  return qs.map(q => {
+    const c = q.a, nOpt = 4, confL = LETTERS[c] ? LETTERS[c].conf : [];
+    const p2 = []; if (c.length > 1) p2.push(c[0]); p2.push(...confL.slice(0, 1)); p2.push(...shuffle(pool.filter(x => x !== c && !'cqxyß'.includes(x)))); if (d >= 2) p2.push(...shuffle(allowT.filter(t => t !== c)));
+    const opts = [c]; for (const x of p2) { if (opts.length >= nOpt) break; if (!opts.includes(x)) opts.push(x); }
+    return { w: q.o.w, a: c, k: q.k, o: shuffle(opts) };
+  });
+}
+function kahootAnlaut(stage, ctx) {
+  const d = ctx.diff || 1, scr = gameScreen(stage, 'kh-screen'), g0 = App.gen;
+  const QT = 15000, RT = 4200;
+  const R = makeRound('anlaut', 8, { diff: d, params: ctx.params }); R.noSim = true; R.pts = 0; R.answered = {};
+  const play = h('div', { class: 'play kh' });
+  scr.append(R.dots, play); R.paint(); togEnsure(R);
+  const amHost = Net.isHost();
+  let qs = null, kp = null, shownQ = -1, shownPh = '', myAns = null, botAns = {}, ansSeq = 0;
+  if (amHost) {
+    qs = buildAnlautQs(d);
+    kp = { qi: 0, ph: 'q', t: Date.now() };
+    hostPub({ kq: qs, kp, kb: {} });
+  }
+  play.append(h('p', { class: 'on-wait' }, '⏳ Gleich geht es los …'));
+  const hp = () => Net.hostPresence() || {};
+  const answersFor = qi => {
+    const out = {};
+    togRows().forEach(r => {
+      if (r.me) { if (myAns && myAns.qi === qi) out[r.id] = myAns; return; }
+      if (r.bot) { const kb = (amHost ? botAns : (hp().kb || {}))[r.id]; if (kb && kb.qi === qi) out[r.id] = kb; return; }
+      const pr = Net.peers().find(p => p.id === r.id); const ka = pr && pr.pr.ka; if (ka && ka.qi === qi) out[r.id] = ka;
+    });
+    return out;
+  };
+  function renderQ(q, qi) {
+    play.innerHTML = '';
+    const o = wlOf(q.w) || { e: '❓', w: q.w };
+    const bar = h('div', { class: 'kh-time' }, h('i', {}));
+    const sayIt = () => Nur.say([D(q.w)]);
+    const picB = h('button', { class: 'picbtn', 'aria-label': 'Wort anhören' }, picEl(o.e, 'big')); picB.onclick = () => { AE.play('tap'); sayIt(); };
+    const grid = h('div', { class: 'opts kh-opts' });
+    const COLS = ['#ff5d8f', '#3aa7ff', '#ffb21a', '#2fc28a'];
+    q.o.forEach((x, j) => {
+      const b = h('button', { class: 'opt kh-opt', style: { '--k': COLS[j % 4] }, 'data-x': x }, h('span', { class: 'kh-l' }, x.length > 1 ? cap(x) + ' ' + x : optLetters(x)), h('span', { class: 'kh-who' }));
+      b.onclick = () => {
+        unlockAudio();
+        if (myAns || shownPh !== 'q') return;
+        myAns = { qi, x, t: Date.now() - (kp ? kp.t : Date.now()), s: ++ansSeq };
+        b.classList.add('picked'); AE.play('pop');
+        hostPub({ ka: myAns }); R.answered[Net.myId()] = 1; if (R.tog) R.tog.paint();
+        wait.textContent = '⏳ Warte auf die anderen …';
+      };
+      grid.appendChild(b);
+    });
+    const wait = h('p', { class: 'kh-wait' }, 'Womit fängt es an? Wer ist am schnellsten?');
+    play.append(h('div', { class: 'kh-head' }, h('b', {}, 'Frage ' + (qi + 1) + ' / ' + qs.length), bar), h('div', { class: 'prompt' }, picB, h('div', { class: 'row' }, sayBtn(sayIt), h('div', { class: 'qline' }, 'Womit fängt es an?'))), grid, wait);
+    requestAnimationFrame(() => { const i = bar.querySelector('i'); i.style.transition = 'none'; i.style.width = '100%'; requestAnimationFrame(() => { i.style.transition = 'width ' + Math.max(1, (QT - (Date.now() - kp.t)) / 1000) + 's linear'; i.style.width = '0%'; }); });
+    Nur.say([D(q.w)]);
+  }
+  function renderReveal(q, qi) {
+    const ans = answersFor(qi);
+    const ordered = Object.entries(ans).sort((a, b) => a[1].t - b[1].t);
+    const rows = {}; togRows().forEach(r => { rows[r.id] = r; });
+    $$('.kh-opt', play).forEach(b => { const x = b.dataset.x; b.classList.add(x === q.a ? 'ok' : 'dim'); b.classList.remove('picked'); });
+    let rank = 0;
+    ordered.forEach(([id, a], i) => {
+      const r = rows[id]; if (!r) return;
+      const b = $$('.kh-opt', play).find(e => e.dataset.x === a.x); if (!b) return;
+      const ok = a.x === q.a; if (ok) rank++;
+      const chip = h('span', { class: 'kh-chip' + (ok ? ' ok' : ' no'), style: { '--c': r.col, animationDelay: (i * 0.35) + 's' } }, togAvatar(r, 'sm'), h('i', { class: 'kh-ord' }, ok ? String(rank) : '✗'));
+      b.querySelector('.kh-who').appendChild(chip);
+      setTimeout(() => AE.play(ok ? (rank === 1 ? 'chime' : 'pop') : 'tick'), i * 350);
+    });
+    const mine = ans[Net.myId()];
+    const okMine = mine && mine.x === q.a;
+    if (okMine) { const pts = 500 + Math.round(500 * Math.max(0, 1 - mine.t / QT)); R.pts += pts; R.first++; R.stars++; addStars(1, play.querySelector('.kh-opt.ok')); toast('+' + pts + ' Punkte'); }
+    R.i = qi + 1; R.paint();
+    if (R.tog) R.tog.res(!!okMine);
+    const first = ordered.find(([, a]) => a.x === q.a);
+    const wait = play.querySelector('.kh-wait');
+    if (wait) wait.textContent = first ? '⚡ Am schnellsten: ' + (rows[first[0]] ? rows[first[0]].nm : '') : 'Keiner hatte es richtig – nächste Runde!';
+    Nur.say([D(LETTERS[q.a] ? `${LETTERS[q.a].nm} wie ${q.w}!` : q.w)], { keep: false });
+    R.answered = {};
+  }
+  function finish() { if (R.done) return; R.i = R.n; R.finish(); }
+  /* host clock: bots answer, reveal when all answered or time is up, then next question */
+  if (amHost) {
+    const lvl = (Net.roster && Net.roster.lvl) || 2, acc = [0, 0.55, 0.72, 0.88][lvl], BS = {}, T0 = Date.now();
+    App.every(() => {
+      if (!App.alive(g0) || !kp) return;
+      const now = Date.now(), el = now - kp.t, q = qs[kp.qi];
+      if (kp.ph === 'q') {
+        let ch = false;
+        ((Net.roster && Net.roster.bt) || []).forEach(bid => {
+          const id = 'b:' + bid; if (botAns[id] && botAns[id].qi === kp.qi) return;
+          const due = (botAns['_due_' + id + kp.qi]) || (botAns['_due_' + id + kp.qi] = 2500 + rnd(lvl === 3 ? 4000 : 7500));
+          if (el >= due) { const ok = Math.random() < acc; botAns[id] = { qi: kp.qi, x: ok ? q.a : pick(q.o.filter(x => x !== q.a)), t: el }; ch = true; }
+        });
+        if (ch) hostPub({ kb: Object.fromEntries(Object.entries(botAns).filter(([k]) => !k.startsWith('_'))) });
+        const all = togPlayers(), got = answersFor(kp.qi);
+        if (el > QT || all.every(r => got[r.id])) {
+          kp = { qi: kp.qi, ph: 'r', t: kp.t, rt: now };
+          ((Net.roster && Net.roster.bt) || []).forEach(bid => { const id = 'b:' + bid, a = botAns[id], st = BS[bid] || (BS[bid] = { id: bid, pts: 0, st: 0, rs: 0 }); const ok = !!(a && a.qi === kp.qi && a.x === q.a); if (ok) { st.pts += 500 + Math.round(500 * Math.max(0, 1 - a.t / QT)); st.st++; } st.r = ok ? 1 : 0; st.rs++; st.i = kp.qi + 1; st.n = qs.length; });
+          hostPub({ kp, bots: Object.values(BS) });
+        }
+      } else if (kp.ph === 'r' && now - kp.rt > RT) {
+        if (kp.qi + 1 >= qs.length) { kp = { qi: kp.qi, ph: 'end', t: now }; Object.values(BS).forEach(b => { b.done = 1; b.ms = now - T0; }); hostPub({ kp, bots: Object.values(BS) }); }
+        else { kp = { qi: kp.qi + 1, ph: 'q', t: now }; hostPub({ kp }); }
+      }
+      step();
+    }, 250);
+  }
+  function step() {
+    if (!App.alive(g0)) return;
+    const H = hp();
+    if (!amHost) { qs = H.kq || qs; kp = H.kp || kp; }
+    if (!qs || !kp) return;
+    const q = qs[kp.qi]; if (!q) return;
+    if (kp.qi !== shownQ) { shownQ = kp.qi; shownPh = 'q'; if (!myAns || myAns.qi !== kp.qi) myAns = null; renderQ(q, kp.qi); }
+    if (kp.ph === 'q') {
+      const got = answersFor(kp.qi); R.answered = {}; Object.keys(got).forEach(k => { R.answered[k] = 1; }); if (R.tog) R.tog.paint();
+    }
+    if (kp.ph === 'r' && shownPh !== 'r') { shownPh = 'r'; renderReveal(q, kp.qi); }
+    if (kp.ph === 'end' && shownPh !== 'end') { shownPh = 'end'; setTimeout(finish, 600); }
+  }
+  App.clean.push(Net.on(step));
+  if (!amHost) App.every(step, 300);
+  step();
+}
+
+/* ---------- Memory in turns: one board for everybody, the player whose turn it is flips ---------- */
+function memoryTog(stage, ctx) {
+  const d = ctx.diff || 1, scr = gameScreen(stage, 'mem-screen'), g0 = App.gen;
+  const amHost = Net.isHost();
+  const R = makeRound('memory', 6, { diff: d, params: ctx.params }); R.noSim = true;
+  const banner = h('div', { class: 'mem-turn' }, '⏳ Gleich geht es los …');
+  const area = h('div', { class: 'mem-area' }), grid = h('div', { class: 'mem-grid' });
+  area.appendChild(grid); scr.append(R.dots, banner, area); R.paint(); togEnsure(R);
+  const back = '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14 8h20l8 10-18 24L6 18z" fill="rgba(255,255,255,.9)"/><path d="M6 18h36M18 8l-4 10 10 24 10-24-4-10" fill="none" stroke="rgba(0,0,0,.18)" stroke-width="2"/></svg>';
+  let md = null, ms = null, built = false, els = [], mySeq = 0, lastTurn = null, lastOpen = '', lastDone = 0;
+  const order = () => togRows().map(r => r.id);
+  if (amHost) {
+    const pairs = 6; let items;
+    if (d === 1) {
+      const ls = Brain.pickW(Brain.letterPool(1).filter(l => l !== 'ß').map(l => 'L:' + l), pairs).map(k => k.slice(2));
+      items = ls.map(l => ({ a: { t: 'L', v: LETTERS[l].U }, b: { t: 'L', v: l }, say: LETTERS[l].nm }));
+    } else {
+      const ws = shuffle(WL.filter(o => o.lvl <= (d === 2 ? 2 : 3) && !o.tags.includes('irr') && !String(o.e).startsWith('svg:') && o.w.length <= 8 && Array.from(o.e).length <= 2)).slice(0, pairs);
+      items = ws.map(o => ({ a: { t: 'E', v: o.e }, b: { t: 'W', v: o.w }, say: o.w }));
+    }
+    const cards = shuffle(items.flatMap((it, i) => [[i, 'a'], [i, 'b']]));
+    md = { it: items, c: cards };
+    ms = { pl: order(), tu: 0, op: [], dn: {}, sc: {}, sq: 0, end: 0 };
+    hostPub({ md, ms });
+  }
+  const hp = () => Net.hostPresence() || {};
+  const rowsById = () => { const o = {}; togRows().forEach(r => { o[r.id] = r; }); return o; };
+  function build() {
+    built = true; grid.innerHTML = ''; els = [];
+    R.n = md.it.length; R.paint();
+    md.c.forEach(([ii, sd], ci) => {
+      const side = md.it[ii][sd];
+      const front = h('div', { class: 'side front' });
+      if (side.t === 'L') front.appendChild(h('span', { class: 'mletter' }, side.v));
+      else if (side.t === 'E') front.appendChild(picEl(side.v));
+      else front.appendChild(h('span', { class: 'wtxt' }, wordEl(side.v)));
+      const el = h('button', { class: 'mcard', 'aria-label': 'Karte' }, h('div', { class: 'side back', html: back }), front);
+      el.onclick = () => tap(ci);
+      els.push(el); grid.appendChild(el);
+    });
+    onSize(area, () => {
+      const r = area.getBoundingClientRect(), n = els.length, land = r.width > r.height * 1.1;
+      const colsN = land ? Math.min(n, 6) : 4, rows = Math.ceil(n / colsN), gap = 12;
+      const cw = Math.max(52, Math.min((r.width - gap * (colsN - 1)) / colsN, ((r.height - gap * (rows - 1)) / rows) / 1.2));
+      grid.style.gridTemplateColumns = `repeat(${colsN}, ${Math.floor(cw)}px)`; grid.style.setProperty('--cw', Math.floor(cw) + 'px');
+    });
+  }
+  const turnId = () => ms && ms.pl[ms.tu % ms.pl.length];
+  function tap(ci) {
+    unlockAudio();
+    if (!ms || ms.end) return;
+    if (turnId() !== Net.myId()) { const r = rowsById()[turnId()]; toast('Warte – ' + (r ? r.nm : 'jemand') + ' ist dran'); AE.play('tick'); return; }
+    if (amHost) process(ci, Net.myId()); else hostPub({ mv: { ci, sq: ++mySeq } });
+  }
+  /* host: the only one who changes the board */
+  let busy = false;
+  function process(ci, pid) {
+    if (busy || ms.end || turnId() !== pid || ms.dn[ci] != null || ms.op.includes(ci) || ms.op.length >= 2) return;
+    ms.op = ms.op.concat([ci]); ms.sq++; seen[ci] = md.c[ci][0]; hostPub({ ms });
+    if (ms.op.length === 2) {
+      busy = true;
+      const [a, b] = ms.op, same = md.c[a][0] === md.c[b][0];
+      setTimeout(() => {
+        if (!App.alive(g0)) return;
+        if (same) { ms.dn = Object.assign({}, ms.dn, { [a]: pid, [b]: pid }); ms.sc = Object.assign({}, ms.sc, { [pid]: (ms.sc[pid] || 0) + 1 }); }
+        else ms.tu = (ms.tu + 1) % ms.pl.length;
+        ms.op = []; ms.sq++;
+        if (Object.keys(ms.dn).length >= md.c.length) ms.end = 1;
+        hostPub({ ms }); busy = false; render();
+      }, same ? 700 : 1400);
+    }
+    render();
+  }
+  const seen = {};
+  if (amHost) {
+    const lastMv = {};
+    const lvl = (Net.roster && Net.roster.lvl) || 2, mem = [0, 0.35, 0.6, 0.85][lvl];
+    let botAt = 0;
+    App.every(() => {
+      if (!App.alive(g0) || !ms || ms.end) return;
+      Net.peers().forEach(p => { const mv = p.pr.mv; if (mv && mv.sq !== lastMv[p.id]) { lastMv[p.id] = mv.sq; process(mv.ci, p.id); } });
+      const t = turnId();
+      if (t && t.startsWith('b:') && !busy && Date.now() > botAt) {
+        botAt = Date.now() + 1100;
+        const free = md.c.map((c, i) => i).filter(i => ms.dn[i] == null && !ms.op.includes(i));
+        let pickI;
+        if (ms.op.length === 1) { const want = md.c[ms.op[0]][0]; const known = free.find(i => seen[i] === want && i !== ms.op[0]); pickI = (known != null && Math.random() < mem) ? known : pick(free.filter(i => i !== ms.op[0])); }
+        else { const kn = {}; let pair = null; free.forEach(i => { if (seen[i] != null) { if (kn[seen[i]] != null) pair = [kn[seen[i]], i]; else kn[seen[i]] = i; } }); pickI = (pair && Math.random() < mem) ? pair[0] : pick(free.filter(i => seen[i] == null).concat(free).slice(0, Math.max(1, free.length))); }
+        if (pickI != null) process(pickI, t);
+      }
+    }, 250);
+  }
+  function render() {
+    if (!App.alive(g0)) return;
+    if (!amHost) { md = hp().md || md; ms = hp().ms || ms; }
+    if (!md || !ms) return;
+    if (!built) build();
+    const rows = rowsById();
+    els.forEach((el, ci) => {
+      const done = ms.dn[ci], open = ms.op.includes(ci) || done != null;
+      el.classList.toggle('open', open); el.classList.toggle('done', done != null);
+      if (done != null) { const r = rows[done]; el.style.setProperty('--fc', r ? r.col : '#ffb21a'); if (!el.querySelector('.mem-own') && r) el.appendChild(h('span', { class: 'mem-own' }, togAvatar(r, 'xs'))); }
+    });
+    const opKey = ms.op.join(',');
+    if (opKey !== lastOpen) { if (ms.op.length > lastOpen.split(',').filter(Boolean).length) { AE.play('flip'); const ci = ms.op[ms.op.length - 1]; const it = md.it[md.c[ci][0]]; Nur.say([D(it.say)], { keep: false }); } lastOpen = opKey; }
+    const dn = Object.keys(ms.dn).length;
+    if (dn > lastDone) { AE.play('ok'); const ci = +Object.keys(ms.dn).slice(-1)[0]; if (els[ci]) FX.burstAt(els[ci], { n: 18 }); lastDone = dn; }
+    const t = turnId(), tr = rows[t];
+    R.turnId = t;
+    const myPairs = ms.sc[Net.myId()] || 0;
+    if (myPairs !== R.stars) { const add = myPairs - R.stars; R.stars = myPairs; R.first = myPairs; R.i = Math.min(R.n, dn / 2); if (add > 0) { addStars(add, banner); R.tog && R.tog.res(true); } else R.tog && R.tog.pub(); }
+    R.i = Math.min(R.n, dn / 2); R.paint();
+    if (amHost) { const bots = togRows().filter(r => r.bot).map(r => ({ id: r.id.slice(2), i: dn / 2, n: md.it.length, st: ms.sc[r.id] || 0, done: ms.end ? 1 : 0 })); const key = JSON.stringify(bots); if (key !== render._bk) { render._bk = key; hostPub({ bots }); } }
+    if (t !== lastTurn) {
+      lastTurn = t;
+      banner.style.setProperty('--c', tr ? tr.col : '#9b6bff');
+      banner.innerHTML = ''; if (tr) banner.append(togAvatar(tr, 'sm'));
+      banner.append(h('b', {}, t === Net.myId() ? '🎯 Du bist dran!' : '⏳ ' + (tr ? tr.nm : '…') + ' ist dran'));
+      if (t === Net.myId()) AE.play('bell');
+      if (R.tog) R.tog.paint();
+    }
+    if (ms.end && !R.done) { setTimeout(() => { if (!R.done) { R.i = R.n; R.finish(); } }, 900); }
+  }
+  App.clean.push(Net.on(render));
+  App.every(render, 400);
+  render();
+}
+
+/* route the two games to their live versions in a together room */
+(() => {
+  const A = GAME_IMPL.anlaut.start, M = GAME_IMPL.memory.start;
+  GAME_IMPL.anlaut.start = function (stage, ctx) { return isTog() ? kahootAnlaut(stage, ctx) : A.call(this, stage, ctx); };
+  GAME_IMPL.memory.start = function (stage, ctx) { return isTog() ? memoryTog(stage, ctx) : M.call(this, stage, ctx); };
+})();
 
 /* ======================= bots everywhere + Quiz-Duell (Kahoot-style) ======================= */
 const QUIZ_BOTS = [

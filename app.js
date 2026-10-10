@@ -8787,6 +8787,52 @@ GAME_IMPL.arena.start = (function (orig) {
 
 /* ======================= Supabase Realtime room (website without a Claude account): same shape as the room capability ======================= */
 const SUPA = { url: 'https://dfjotyadnhnpbcqghbrn.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRmam90eWFkbmhucGJjcWdoYnJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2MzQ5OTMsImV4cCI6MjEwNzIxMDk5M30._2BRz82mW_lQ20fN_g0RwxVfOdA72kx5RjkWSn1IEXw', lib: 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js' };
+/* HTTP long-polling transport for Supabase Realtime (Phoenix LongPoll): used when WebSockets are blocked (some Wi-Fi, proxies).
+   Shaped like a WebSocket so supabase-js can use it as `realtime.transport`. */
+class FunkelLongPoll {
+  constructor(url) {
+    this.url = String(url).replace(/^ws/, 'http').replace(/\/websocket(\?|$)/, '/longpoll$1');
+    this.readyState = 0; this.token = null; this.q = Promise.resolve(); this.ctl = null; this.closed = false; this.binaryType = 'arraybuffer';
+    this.onopen = this.onmessage = this.onerror = this.onclose = null;
+    setTimeout(() => this.poll(), 0);
+  }
+  ep() { return this.url + (this.token ? '&token=' + encodeURIComponent(this.token) : ''); }
+  async poll() {
+    if (this.closed) return;
+    let resp;
+    try { this.ctl = new AbortController(); const r = await fetch(this.ep(), { method: 'GET', headers: { Accept: 'application/json' }, signal: this.ctl.signal, cache: 'no-store' }); resp = r.ok ? await r.json() : { status: r.status }; }
+    catch (e) { if (this.closed) return; resp = { status: 0 }; }
+    if (this.closed) return;
+    if (resp.token) this.token = resp.token;
+    const st = resp.status;
+    if (st === 200) { (resp.messages || []).forEach(m => { try { if (this.onmessage) this.onmessage({ data: m }); } catch (e) { } }); this.poll(); }
+    else if (st === 204) this.poll();
+    else if (st === 410) { if (this.readyState !== 1) { this.readyState = 1; try { if (this.onopen) this.onopen({}); } catch (e) { } } this.poll(); }
+    else this.fail(st);
+  }
+  /* one POST at a time; while one is on the way, an older game-state broadcast of the same channel is
+     replaced by the newer one (it is absolute state), so the queue never grows */
+  send(body) {
+    if (this.readyState !== 1) return;
+    this.pend = this.pend || [];
+    let key = null;
+    try { const m = JSON.parse(body); if (m && m.event === 'broadcast' && m.payload && m.payload.event === 'p') key = m.topic; } catch (e) { }
+    if (key) { const i = this.pend.findIndex(x => x.key === key); if (i >= 0) this.pend.splice(i, 1); }
+    this.pend.push({ key, body });
+    if (!this.busy) this.flush();
+  }
+  flush() {
+    if (this.closed || !this.pend || !this.pend.length) { this.busy = false; return; }
+    this.busy = true;
+    const item = this.pend.shift();
+    fetch(this.ep(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: item.body, cache: 'no-store' })
+      .then(r => r.ok ? r.json().catch(() => ({ status: 200 })) : { status: r.status })
+      .then(j => { if (j && j.status && j.status !== 200) { this.fail(j.status); return; } this.flush(); })
+      .catch(() => this.fail(0));
+  }
+  fail(st) { if (this.closed) return; this.closed = true; this.readyState = 3; try { if (this.ctl) this.ctl.abort(); } catch (e) { } try { if (this.onerror) this.onerror({ type: 'error', message: 'longpoll ' + st }); } catch (e) { } try { if (this.onclose) this.onclose({ code: 1011, reason: 'longpoll ' + st, wasClean: false }); } catch (e) { } }
+  close(code, reason) { if (this.closed) return; this.closed = true; this.readyState = 3; try { if (this.ctl) this.ctl.abort(); } catch (e) { } try { if (this.onclose) this.onclose({ code: code || 1000, reason: reason || '', wasClean: true }); } catch (e) { } }
+}
 const SupaRoom = {
   client: null,
   load() {
@@ -8795,12 +8841,26 @@ const SupaRoom = {
     this._lp = new Promise((res, rej) => { const s = document.createElement('script'); s.src = FUNKEL_SITE ? ASSET_BASE + 'lib/supabase.min.js' : SUPA.lib; s.onload = () => window.supabase ? res(window.supabase) : rej(new Error('lib')); s.onerror = () => { this._lp = null; rej(new Error('lib')); }; document.head.appendChild(s); });
     return this._lp;
   },
+  mode: 'ws',
   async init() {
-    const lib = await this.load();
-    if (!this.client) this.client = lib.createClient(SUPA.url, SUPA.key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }, realtime: { params: { eventsPerSecond: 30 } } });
+    const lib = await this.load(); this.lib = lib;
+    let force = false; try { force = new URLSearchParams(location.search).get('lp') === '1'; } catch (e) { }
+    if (force || !('WebSocket' in window)) this.mode = 'lp';
+    if (!this.client) this.client = this.make();
     return this;
   },
+  make() {
+    /* supabase-js 2.45 skips its socket setup for a custom `transport`, so long-polling takes the global WebSocket's place instead */
+    if (this.mode === 'lp' && window.WebSocket !== FunkelLongPoll) { window.FunkelNativeWS = window.WebSocket; window.WebSocket = FunkelLongPoll; }
+    return this.lib.createClient(SUPA.url, SUPA.key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }, realtime: { params: { eventsPerSecond: 30 } } });
+  },
+  /* WebSockets blocked on this network? switch the whole client to long-polling once */
+  async fallback() { if (this.mode === 'lp') return false; this.mode = 'lp'; try { this.client.removeAllChannels(); } catch (e) { } this.client = this.make(); return true; },
   async join(name) {
+    try { return await this.join1(name); }
+    catch (e) { if (await this.fallback()) return await this.join1(name); throw e; }
+  },
+  async join1(name) {
     const client = this.client, myPeer = 'w' + Math.random().toString(36).slice(2, 10);
     const ch = client.channel('funkel:' + name, { config: { broadcast: { self: false, ack: false } } });
     const others = new Map(), subs = []; let myPres = {}, lastSent = 0, timer = null, alive = true, snap = [];
@@ -8810,7 +8870,7 @@ const SupaRoom = {
     const schedule = () => { if (timer) return; const gap = myPres.ph === 'play' ? (myPres.ro ? 250 : 333) : 500; timer = setTimeout(send, Math.max(0, gap - (Date.now() - lastSent))); };
     ch.on('broadcast', { event: 'p' }, m => { const d = m && m.payload; if (!d || !d.k || d.k === myPeer) return; const ex = others.get(d.k); const o = { peer: d.k, isMe: false, sameTab: false, kind: 'viewer', guest: true, presence: d.p || {}, updatedAt: Date.now(), seen: Date.now() }; others.set(d.k, o); if (!ex) { notify([o]); if (Object.keys(myPres).length) send(); } else notify([], [], [o]); });
     ch.on('broadcast', { event: 'bye' }, m => { const d = m && m.payload; if (d && others.has(d.k)) { const o = others.get(d.k); others.delete(d.k); notify([], [o]); } });
-    await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('timeout')), 9000); ch.subscribe(st => { if (st === 'SUBSCRIBED') { clearTimeout(t); res(); } else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') { clearTimeout(t); rej(new Error(st)); } }); });
+    await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('timeout')), this.mode === 'lp' ? 12000 : 7000); ch.subscribe(st => { if (st === 'SUBSCRIBED') { clearTimeout(t); res(); } else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') { clearTimeout(t); rej(new Error(st)); } }); });
     const hb = setInterval(() => { if (Object.keys(myPres).length && Date.now() - lastSent > 2000) send(); const now = Date.now(); for (const [k, o] of others) if (now - o.seen > 6000) { others.delete(k); notify([], [o]); } }, 500);
     notify();
     return {
@@ -8868,7 +8928,7 @@ const Net = {
     code = this.clean(code); if (!code) throw new Error('code');
     if (this.nr && this.code === code) return this.nr;
     await this.leave();
-    this.nr = await r.join('arena-' + code.toLowerCase().replace(/[^a-z0-9]/g, '-'));
+    this.err = null; this.nr = wrapRoom(await r.join('arena-' + code.toLowerCase().replace(/[^a-z0-9]/g, '-')));
     this.code = code; this.jt = Date.now(); this._plan = null;
     this.unsub = this.nr.onPeers(() => this.listeners.forEach(f => { try { f(); } catch (e) { console.error(e); } }));
     this.setLobby();
@@ -8918,6 +8978,26 @@ function versus(ps, cp) {
     all.forEach((e, i) => { if (i) box.appendChild(h('i', { class: 'x' }, '⚔️')); box.appendChild(h('div', { class: 'side solo' }, e)); });
   }
   return h('div', { class: 'ar-vsw' }, h('small', {}, teams ? 'Wer gegen wen (' + Array(teams).fill(ts).join(' gegen ') + '):' : 'Jeder gegen jeden (' + (box.querySelectorAll('.side').length) + ' Autos):'), box);
+}
+/* every presence goes out as clean JSON (Claude's room rejects a whole patch with an `undefined` value or over 4 KiB) and errors are remembered for the status line */
+function cleanJSON(o) { try { return JSON.parse(JSON.stringify(o, (k, v) => (typeof v === 'number' && !isFinite(v)) ? 0 : v)); } catch (e) { return {}; } }
+function wrapRoom(raw) {
+  if (!raw || raw.__wrapped) return raw;
+  let size = 0;
+  const w = {
+    __wrapped: true, raw, name: raw.name,
+    presence(p) {
+      const c = cleanJSON(p); size = JSON.stringify(c).length;
+      let pr; try { pr = raw.presence(c); } catch (e) { Net.err = (e && (e.code || e.message)) || 'Fehler'; return Promise.reject(e); }
+      return Promise.resolve(pr).then(() => { if (Net.err && Net.err !== 'size') Net.err = null; }).catch(e => { Net.err = (e && (e.code || e.message)) || 'Fehler'; throw e; });
+    },
+    peers: () => raw.peers(),
+    onPeers: (f) => raw.onPeers(f, e => { Net.err = (e && e.code) || 'Fehler'; Net.listeners.forEach(x => { try { x(); } catch (er) { } }); }),
+    connected: () => (typeof raw.connected === 'function' ? raw.connected() : true),
+    lastSize: () => size,
+    leave: () => raw.leave()
+  };
+  return w;
 }
 const NET_COLS = ['#ff6fae', '#3aa7ff', '#3ccfa3', '#ffb21a', '#9b6bff', '#ff7d5c'];
 /* the online card in the arena lobby */
@@ -9280,7 +9360,13 @@ SCREENS.online = (stage, params) => {
       action = h('div', { class: 'on-row' }, go, leave);
     } else action = h('div', { class: 'on-row' }, h('p', { class: 'on-wait' }, '⏳ ' + ((hp && hp.nm) || 'Der Gastgeber') + ' sucht das Spiel aus und startet …'), leave);
     const lbSeg = h('div', { class: 'on-segs small' }); [[1, 'Leicht'], [2, 'Mittel'], [3, 'Profi'], [4, 'Wie ich']].forEach(([v, t]) => { const b = h('button', { class: 'on-seg' + ((A.leaveBot || 4) === v ? ' on' : ''), type: 'button' }, t); b.onclick = () => { A.leaveBot = v; Store.save(); Net.setLobby(); AE.play('tap'); paint(); }; lbSeg.appendChild(b); });
-    body.append(head, h('div', { class: 'on-row' }, copy),
+    const conn = Net.nr.connected && Net.nr.connected(); const settled = Date.now() - (Net.jt || 0) > 4000;
+    const okNet = (conn || !settled) && !Net.err;
+    let raw = 0; try { raw = (Net.nr.peers() || []).length; } catch (e) { }
+    const status = h('div', { class: 'on-status ' + (okNet ? 'ok' : 'bad') }, okNet ? (settled ? '🟢 Verbunden – andere Geräte können beitreten' : '⏳ Verbinde …') : '🔴 Keine Verbindung' + (Net.err ? ' (' + Net.err + ')' : ''),
+      h('small', { class: 'on-diag' }, (FUNKEL_SITE ? 'Server: ' + (SupaRoom.mode === 'lp' ? 'HTTP' : 'WebSocket') : 'Claude-Raum') + ' · Geräte im Raum: ' + raw + ' · Verbindung: ' + (conn ? 'ja' : 'nein') + (Net.err ? ' · Fehler: ' + Net.err : '')),
+      !okNet && !FUNKEL_SITE ? h('small', {}, 'Claude-Online verbindet auf diesem Gerät gerade nicht. Seite neu laden; wenn es bleibt: auf der Funkelschloss-Webseite spielen alle ohne Anmeldung zusammen (hadimalkobb-blip.github.io/funkelschloss).') : null);
+    body.append(head, status, h('div', { class: 'on-row' }, copy),
       sec('pl', '👑 Im Raum (' + ps.length + ')', players),
       sec('gm', amHost ? '🎲 Such ein Spiel aus' : '🎲 Das Spiel', grid),
       action,
@@ -9298,6 +9384,7 @@ SCREENS.online = (stage, params) => {
     paint();
   };
   const unNet = Net.on(check);
+  App.every(() => { if (Net.nr && App.cur === 'online') paint(); }, 3000);
   App.clean.push(() => { unNet(); if (unDir) unDir(); NetDir.close(); });
   if (Net.nr) Net.setLobby();
   paint();

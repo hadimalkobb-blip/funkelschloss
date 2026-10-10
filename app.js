@@ -2472,6 +2472,7 @@ function makeRound(id, n, opts) {
   const g = App.gen;
   const R = window.__R = { id, n, i: 0, first: 0, misses: 0, stars: 0, streak: 0, wrongNow: 0, locked: false, done: false, diff: opts.diff || 1, ask: opts.ask || null, params: opts.params || {}, info: opts.info || null };
   R.dots = h('div', { class: 'dots', 'aria-hidden': 'true' });
+  if (App.params && App.params.tog) setTimeout(() => { if (App.alive(g) && !R.tog && typeof togEnsure === 'function') togEnsure(R); }, 80);
   R.paint = () => { R.dots.innerHTML = ''; for (let k = 0; k < R.n; k++) R.dots.appendChild(h('i', { class: k < R.i ? 'done' : k === R.i ? 'now' : '' })); };
   R.start = () => {
     R.paint();
@@ -5659,6 +5660,7 @@ const LESSONS = {
   ]
 };
 function playLesson(id, done) {
+  if (App.params && App.params.tog) { if (S.lessonsSeen) { delete S.lessonsSeen[id]; Store.save(); } setTimeout(done, 0); return; }
   const steps = LESSONS[id]; if (!steps) { if (done) done(); return; }
   S.lessonsSeen[id] = Date.now(); Store.save();
   let i = 0;
@@ -9219,7 +9221,7 @@ Net.startTog = function (gm) {
   const pl = ppl.map((p, i) => ({ id: p.id, nm: p.pr.nm, col: NET_COLS[i % NET_COLS.length] }));
   const bt = this.planBots().slice(0, Math.max(0, Math.min(this.botsN || 0, max - pl.length))).map(b => b.id);
   this.gm = gm; this.roster = { pl, bt, tog: 1, lvl: this.botLvl || 2 };
-  const pr = this.nr.presence(Object.assign(this.look(), { ph: 'play', gm, t0: Date.now(), ro: this.roster, g: { end: 0 }, tg: { i: 0, n: 0, st: 0, done: 0 }, bots: null, bs: null, kq: null, kp: null, kb: null, ka: null, md: null, ms: null, mv: null, gs: null, gp: null, gi: null, ge: null, gq: null })); if (pr && pr.catch) pr.catch(() => { });
+  const pr = this.nr.presence(Object.assign(this.look(), { ph: 'play', gm, t0: Date.now(), ro: this.roster, g: { end: 0 }, tg: { i: 0, n: 0, st: 0, done: 0 }, bots: null, bs: null, kq: null, kp: null, kb: null, ka: null, md: null, ms: null, mv: null, gs: null, gp: null, gi: null, ge: null, gq: null, bz: null, bb: null, bq: null })); if (pr && pr.catch) pr.catch(() => { });
 };
 function togRows() {
   const hp = Net.hostPresence() || {}; const me = Net.myId();
@@ -9269,7 +9271,10 @@ function TogBar(R) {
       if (!r.me && r.ch && r.ch[1] !== seenCh[r.id]) { seenCh[r.id] = r.ch[1]; const c = TOG_CHAT[r.ch[0]]; if (c) { bubble(it, c); AE.play(c[2]); } }
     });
   };
-  const pub = () => { if (R.done) { const hp = Net.hostPresence(); Net.togDone = hp && hp.t0; } Net.togPub(cur()); paint(); };
+  let lastK = '', lastSt = 0;
+  const pub = () => { if (R.done) { const hp = Net.hostPresence(); Net.togDone = hp && hp.t0; } lastK = R.stars + '|' + R.i + '|' + (R.pts || 0); lastSt = R.stars; Net.togPub(cur()); paint(); };
+  /* games that count stars on their own (action games): notice it and tell the others */
+  App.every(() => { if (R.done) return; const k = R.stars + '|' + R.i + '|' + (R.pts || 0); if (k === lastK) return; if (R.stars > lastSt && !R.noSim) { lastR = 1; rs++; const mine = items[Net.myId()]; if (mine) flash(mine, true); } pub(); }, 700);
   const res = ok => { lastR = ok ? 1 : 0; rs++; const mine = items[Net.myId()]; if (mine) flash(mine, ok); pub(); };
   const un = Net.on(paint); App.clean.push(un);
   /* bots: the host plays them (progress, right/wrong, emotes, spoken lines); everyone hears their lines */
@@ -9335,6 +9340,7 @@ function togRanking(R) {
 
 SCREENS.online = (stage, params) => {
   const g0 = App.gen, A = arenaState();
+  if (Net.togIn) { Net.togDone = Net.togIn; Net.togIn = null; }
   Bar.game('Zusammen spielen');
   Nur.screen = null;
   const scr = h('div', { class: 'screen online' });
@@ -9464,7 +9470,7 @@ SCREENS.online = (stage, params) => {
     NetDir.ad();
     const hp = Net.hostPresence();
     if (hp && !Net.isHost() && hp.ph === 'play' && hp.ro && hp.ro.pl.some(x => x.id === Net.myId()) && !(hp.g && hp.g.end) && !(hp.t0 && hp.t0 === Net.togDone)) {
-      if (hp.gm && hp.gm !== 'arena') { Net.gm = hp.gm; Net.roster = hp.ro; App.go(hp.gm, { tog: 1, net: 1 }); return; }
+      if (hp.gm && hp.gm !== 'arena') { Net.gm = hp.gm; Net.roster = hp.ro; Net.togIn = hp.t0; App.go(hp.gm, { tog: 1, net: 1 }); return; }
       if (hp.cfg) { Net.roster = hp.ro; Net.cfg = hp.cfg; App.go('arena', { go: 1, net: 1 }); return; }
     }
     paint();
@@ -10185,11 +10191,157 @@ function goldTog(stage, ctx) {
   Nur.say([D('Gold-Jagd! Wer holt das meiste Gold?'), D('Pass auf! Wenn die Haken zusammenstoßen, fällt das Gold herunter.'), ...arIf('صيد الدهب! انتبهي! إذا الكلاليب ضربوا ببعض، بيوقع الدهب!')]);
 }
 
+/* ---------- Blasen together: one field for all, everybody hunts a different letter; a caught bubble keeps floating in the catcher's colour ---------- */
+function blasenTog(stage, ctx) {
+  const d = ctx.diff || 1, g0 = App.gen, amHost = Net.isHost(), myId = Net.myId();
+  const scr = gameScreen(stage, 'bub-screen bt');
+  const R = makeRound('blasen', 8, { diff: d, params: ctx.params }); R.noSim = true;
+  const badge = h('div', { class: 'crys' }, '…');
+  const legend = h('div', { class: 'bt-legend' });
+  const field = h('div', { class: 'bub-field skin-' + uiWorld() });
+  const doneEl = h('div', { class: 'bt-done', hidden: true }, '🏁 Fertig! Die anderen fangen noch …');
+  field.appendChild(doneEl);
+  scr.append(h('div', { class: 'bub-head' }, sayBtn(() => announce(), 'Nochmal hören'), h('div', { class: 'target-badge' }, badge), R.dots), legend, field);
+  R.paint(); togEnsure(R);
+  const realFinish = R.finish;
+  let ending = false;
+  R.finish = () => { if (ending) return realFinish(); if (R.done) return; R.done = true; R.doneMs = Date.now() - (R.tog ? R.tog.t0 : Date.now()); if (R.tog) R.tog.pub(); doneEl.hidden = false; AE.play('win'); FX.confetti(40); };
+  const endAll = () => { if (ending) return; ending = true; const keep = R.done ? R.doneMs : 0; R.done = false; realFinish(); if (keep) { R.doneMs = keep; if (R.tog) R.tog.pub(); } };
+  let pl = [], T = [], meI = -1, myT = null, LL = null;
+  const rowsById = () => { const o = {}; togRows().forEach(r => { o[r.id] = r; }); return o; };
+  function announce() { if (!LL) return; Nur.say([D(`Finde das ${LL.nm}!`), { pause: 150 }, D(LL.echo), ...arIf(`فقّعي بس الفقاعات اللي عليها «${myT}».`)]); }
+  Nur.screen = () => LL ? [D(`Finde das ${LL.nm}!`), A(`فقّعي بس الفقاعات اللي عليها حرف «${myT}».`), D(LL.echo), A('وانتبهي من الحروف التانية!')] : [];
+  function setup(p2, t2) {
+    pl = p2; T = t2; meI = pl.indexOf(myId); myT = meI >= 0 ? T[meI] : null; LL = myT ? LETTERS[myT] : null;
+    badge.textContent = myT ? (d === 3 ? LL.U + ' ' + myT : myT) : '👀';
+    const rows = rowsById(); legend.innerHTML = '';
+    pl.forEach((id, i) => { const r = rows[id] || { id, nm: '?', col: NET_COLS[i % NET_COLS.length] }; legend.appendChild(h('span', { class: 'bt-chip' + (id === myId ? ' me' : ''), style: { '--c': r.col } }, togAvatar(r, 'xs'), h('b', {}, T[i]))); });
+    announce();
+  }
+  const colOf = i => { const r = rowsById()[pl[i]]; return r ? r.col : '#9b6bff'; };
+  /* ---- field ---- */
+  let fw = 600, fh = 400, sz = 96, last = 0;
+  const B = new Map(); let bSeq = 0;
+  const swayPh = id => (id * 2.39) % 6.28, swayAmp = id => 8 + (id * 7) % 18;
+  function measure() { const r = field.getBoundingClientRect(); fw = Math.max(240, r.width); fh = Math.max(240, r.height); sz = fw < 560 ? 74 : 92; B.forEach(b => sizeEl(b)); }
+  const sizeEl = b => { b.el.style.width = b.el.style.height = sz + 'px'; b.el.style.fontSize = Math.round(sz * 0.5) + 'px'; };
+  function mkEl(b) {
+    const el = h('div', { class: 'bub', role: 'button' }, h('div', { class: 'face' }), h('b', {}, b.s));
+    b.el = el; sizeEl(b); field.appendChild(el);
+    el.addEventListener('pointerdown', e => { e.preventDefault(); unlockAudio(); tap(b); });
+  }
+  function paintOwner(b, fresh) {
+    if (b.o < 0 || b.painted === b.o) return; b.painted = b.o;
+    const r = rowsById()[pl[b.o]]; const col = r ? r.col : '#9b6bff';
+    b.el.classList.add('own'); b.el.style.setProperty('--oc', col);
+    if (r) b.el.appendChild(h('span', { class: 'bt-own' }, togAvatar(r, 'xs')));
+    if (fresh) { FX.burstAt(b.el, { n: 14, colors: [col, '#ffffff'] }); if (b.o !== meI) AE.play('pop'); }
+  }
+  function tap(b) {
+    if (!myT || b.o >= 0 || R.done) return;
+    if (b.l === myT) {
+      if (!R.good(b.el, 'L:' + myT, { say: [D(LL.nm + '!')], wait: 0, maxWait: 1 })) return;
+      AE.play('pop'); b.o = meI; paintOwner(b, true);
+      if (amHost) dirty = true; else { reqs.push([++reqSeq, b.id]); while (reqs.length > 8) reqs.shift(); hostPub({ bq: reqs.slice() }); }
+    } else {
+      b.el.classList.remove('wob'); void b.el.offsetWidth; b.el.classList.add('wob');
+      R.bad(null, 'L:' + myT, 'L:' + b.l, null, { say: [D(`Das ist ein ${LETTERS[b.l].nm}.`)] });
+    }
+  }
+  const reqs = []; let reqSeq = 0;
+  /* ---- host: spawns bubbles, plays the bots, decides the end ---- */
+  let dirty = true, lastPub = 0, pool = [], distract = [], bots = [], t0 = Date.now(), endSent = false, bsq = 0, nextTalk = Date.now() + 8000;
+  const speed = [0, 0.1, 0.135, 0.17][d] || 0.12;
+  function letterFor() {
+    const active = T.filter((t, i) => !doneOf(i));
+    const visible = l => [...B.values()].some(b => b.l === l && b.o < 0 && b.y > -0.1 && b.y < 0.95);
+    const missing = active.filter(l => !visible(l));
+    if (missing.length && Math.random() < 0.7) return pick(missing);
+    return Math.random() < 0.5 && active.length ? pick(active) : pick(distract.length ? distract : pool);
+  }
+  function spawn(initial) {
+    const l = letterFor(), id = ++bSeq;
+    const b = { id, l, s: d === 3 && Math.random() < 0.5 ? LETTERS[l].U : l, x: Math.random(), y: initial ? 0.05 + Math.random() * 0.95 : 1.05 + Math.random() * 0.2, vy: speed * (0.75 + Math.random() * 0.5), o: -1 };
+    B.set(id, b); mkEl(b); dirty = true;
+  }
+  const doneOf = i => { const id = pl[i]; if (!id) return true; if (id === myId) return R.done; if (id.startsWith('b:')) { const bo = bots.find(x => x.i === i); return !bo || bo.done; } const pe = Net.peers().find(p => p.id === id); return !pe || !!(pe.pr.tg && pe.pr.tg.done); };
+  function hostStart() {
+    const rows = togRows().slice(0, 8), ids = rows.map(r => r.id);
+    pool = Brain.letterPool(d).filter(x => x !== 'ß' && LETTERS[x]); if (pool.length < ids.length + 3) pool = uniq([...pool, ...LETTER_ORDER.filter(x => x !== 'ß' && LETTERS[x])]);
+    const mine = Brain.pickW(pool.map(x => 'L:' + x), 1)[0].slice(2);
+    const ts = [mine, ...shuffle(pool.filter(x => x !== mine)).slice(0, ids.length - 1)];
+    const me0 = ids.indexOf(myId); if (me0 > 0) { const t = ts[0]; ts[0] = ts[me0]; ts[me0] = t; }
+    distract = uniq([...ts.flatMap(t => (LETTERS[t].conf || []).filter(c => LETTERS[c] && c !== 'ß' && !ts.includes(c))), ...shuffle(pool.filter(x => !ts.includes(x))).slice(0, 3)]);
+    setup(ids, ts);
+    const lvl = (Net.roster && Net.roster.lvl) || 2;
+    bots = rows.map((r, i) => r.bot ? { i, id: r.bot.id, n: 0, st: 0, r: null, rs: 0, done: 0, ms: 0, next: Date.now() + 3000 + rnd(3000), lvl } : null).filter(Boolean);
+    const n = Math.min(16, 6 + ids.length * 2); for (let i = 0; i < n; i++) spawn(true);
+  }
+  const lastBq = {};
+  function hostTick() {
+    const now = Date.now();
+    Net.peers().forEach(pe => { const i = pl.indexOf(pe.id), q = pe.pr && pe.pr.bq; if (i < 0 || !q) return; q.forEach(([sq, id]) => { if (sq <= (lastBq[pe.id] || 0)) return; lastBq[pe.id] = sq; const b = B.get(id); if (b && b.o < 0 && b.l === T[i]) { b.o = i; paintOwner(b, true); dirty = true; } }); });
+    let bch = false;
+    bots.forEach(bo => {
+      if (bo.done || now < bo.next) return;
+      const gap = [0, [5200, 8500], [3600, 6200], [2400, 4200]][bo.lvl], acc = [0, 0.6, 0.75, 0.9][bo.lvl];
+      bo.next = now + gap[0] + rnd(gap[1] - gap[0]);
+      const mineB = [...B.values()].filter(b => b.o < 0 && b.l === T[bo.i] && b.y > 0.05 && b.y < 0.9);
+      if (mineB.length && Math.random() < acc) { const b = pick(mineB); b.o = bo.i; paintOwner(b, true); bo.n++; bo.st++; bo.r = 1; if (bo.n >= R.n) { bo.done = 1; bo.ms = now - t0; } if (Math.random() < 0.25) talk(bo.id, 'ok'); }
+      else { bo.r = 0; const wrong = [...B.values()].filter(b => b.o < 0 && b.l !== T[bo.i] && b.y > 0.05 && b.y < 0.9); const w = wrong.length ? pick(wrong) : null; if (w) { w.el.classList.remove('wob'); void w.el.offsetWidth; w.el.classList.add('wob'); } if (Math.random() < 0.3) talk(bo.id, 'miss'); }
+      bo.rs++; bch = true; dirty = true;
+    });
+    if (now > nextTalk && bots.length) { nextTalk = now + 12000 + rnd(8000); talk(pick(bots).id, pick(['joke', 'joke', 'lead', 'behind', 'think'])); }
+    if (!endSent && pl.length && (pl.every((id, i) => doneOf(i)) || now - t0 > 180000)) { endSent = true; dirty = true; }
+    if ((dirty && now - lastPub > 220) || now - lastPub > 1500) {
+      dirty = false; lastPub = now;
+      const o = { bz: { pl, T, end: endSent ? 1 : 0 }, bb: [...B.values()].map(b => [b.id, b.l, b.s, Math.round(b.x * 1000) / 1000, Math.round(b.y * 1000) / 1000, Math.round(b.vy * 1000) / 1000, b.o]) };
+      if (bch || !hostTick._b) { hostTick._b = 1; o.bots = bots.map(bo => ({ id: bo.id, i: bo.n, n: R.n, st: bo.st, done: bo.done, ms: bo.ms, r: bo.r, rs: bo.rs })); }
+      hostPub(o);
+    }
+    if (endSent && !ending) App.later(endAll, 1200);
+  }
+  function talk(bid, cat) { const L = BOT_LINES[bid] && BOT_LINES[bid][cat]; if (!L || !L.length) return; hostPub({ bs: [bid, cat, rnd(L.length), ++bsq] }); }
+  /* ---- guests: mirror the host's bubbles ---- */
+  let lastBb = null, lastBz = null;
+  function applySnap() {
+    const hp = Net.hostPresence() || {};
+    if (hp.bz && hp.bz !== lastBz) { lastBz = hp.bz; if (!pl.length || hp.bz.pl.join() !== pl.join()) setup(hp.bz.pl, hp.bz.T); if (hp.bz.end && !ending) App.later(endAll, 600); }
+    if (hp.bb && hp.bb !== lastBb) {
+      lastBb = hp.bb; const seen = new Set();
+      hp.bb.forEach(([id, l, sh, x, y, vy, o]) => {
+        seen.add(id); let b = B.get(id);
+        if (!b) { b = { id, l, s: sh, x, y, vy, o: -1 }; B.set(id, b); mkEl(b); }
+        else { const dy = y - b.y; b.y += Math.abs(dy) > 0.15 ? dy : dy * 0.5; b.vy = vy; }
+        if (o >= 0 && b.o !== o) { const fresh = b.o < 0; b.o = o; paintOwner(b, fresh); }
+      });
+      for (const [id, b] of B) if (!seen.has(id)) { b.el.remove(); B.delete(id); }
+    }
+  }
+  onSize(field, measure);
+  App.raf(ts => {
+    if (!App.alive(g0)) return;
+    const dt = Math.min(0.1, ((ts - (last || ts)) / 1000) || 0.016); last = ts;
+    if (!amHost) applySnap();
+    const t = ts / 1000;
+    for (const [id, b] of B) {
+      b.y -= b.vy * dt;
+      if (b.y < -0.3) { if (amHost) { b.el.remove(); B.delete(id); spawn(false); } continue; }
+      const x = b.x * (fw - sz) + Math.sin(t * 0.9 + swayPh(id)) * swayAmp(id);
+      b.el.style.transform = `translate3d(${x.toFixed(1)}px,${(b.y * fh).toFixed(1)}px,0)`;
+    }
+    if (amHost) hostTick();
+  });
+  if (amHost) { measure(); hostStart(); }
+  App.clean.push(Net.on(() => { if (!amHost) applySnap(); }));
+}
+
 /* route the two games to their live versions in a together room */
 (() => {
-  const A = GAME_IMPL.anlaut.start, M = GAME_IMPL.memory.start, G = GAME_IMPL.gold.start;
+  const A = GAME_IMPL.anlaut.start, M = GAME_IMPL.memory.start, G = GAME_IMPL.gold.start, BL = GAME_IMPL.blasen.start;
   GAME_IMPL.anlaut.start = function (stage, ctx) { return isTog() ? kahootAnlaut(stage, ctx) : A.call(this, stage, ctx); };
   GAME_IMPL.memory.start = function (stage, ctx) { return isTog() ? memoryTog(stage, ctx) : M.call(this, stage, ctx); };
+  GAME_IMPL.blasen.start = function (stage, ctx) { return isTog() ? blasenTog(stage, ctx) : BL.call(this, stage, ctx); };
   GAME_IMPL.gold.start = function (stage, ctx) { return isTog() ? goldTog(stage, ctx) : G.call(this, stage, ctx); };
 })();
 

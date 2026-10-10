@@ -2032,6 +2032,16 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 .gt-rest{padding:3px 10px;border-radius:99px;border:2px solid var(--c);font-weight:700;font-size:14px}
 @media (max-width:600px){.gt-tick{font-size:14px}.gt.many .gp-av{width:36px;height:36px}.gt.many .gp.me .gp-av{width:42px;height:42px}.gt.many .gp-name{max-width:58px}}
 .gt .gp-bub{white-space:normal;width:max-content;max-width:190px;line-height:1.25}
+/* Blasen together */
+.bt-legend{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:2px 0 6px}
+.bt-chip{display:flex;align-items:center;gap:6px;padding:3px 12px 3px 3px;border-radius:99px;background:var(--glass-2,#fff);border:3px solid var(--c);font:700 22px var(--font-read)}
+.bt-chip.me{box-shadow:0 0 0 3px rgba(255,210,90,.7),0 4px 12px rgba(0,0,0,.15);transform:scale(1.08)}
+.bt-chip .tp-av.xs,.bt-own .tp-av.xs,.mem-own .tp-av.xs{width:30px;height:30px;padding:2px}
+.bt-chip .tp-av.xs .tp-ini,.bt-own .tp-ini{font-size:14px}
+.bub.own .face{box-shadow:0 0 0 5px var(--oc),0 0 22px var(--oc)!important;filter:saturate(1.2)}
+.bub.own b{color:var(--oc);text-shadow:0 0 6px #fff,0 0 2px #fff}
+.bt-own{position:absolute;right:-6px;top:-6px;z-index:2}
+.bt-done{position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:5;background:rgba(255,255,255,.95);color:#2a1a08;font-weight:800;font-size:18px;padding:8px 18px;border-radius:99px;box-shadow:0 6px 18px rgba(0,0,0,.25);white-space:nowrap}
 
 </style>
 <svg id="defs" width="0" height="0" aria-hidden="true"></svg>
@@ -2047,6 +2057,6 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>window.FUNKEL_SITE = 1;</script>
-<script src="app.js?v=1288898"></script>
+<script src="app.js?v=1300313"></script>
 </body>
 </html>

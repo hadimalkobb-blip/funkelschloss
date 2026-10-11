@@ -10238,6 +10238,7 @@ function blasenTog(stage, ctx) {
   field.append(band, tick, frzEl, cdEl);
   scr.append(h('div', { class: 'bub-head' }, sayBtn(() => announce(), 'Nochmal hören'), h('div', { class: 'target-badge' }, badge), timerEl, missEl), field, meter);
   togEnsure(R);
+  document.body.classList.add('bt-on'); App.clean.push(() => document.body.classList.remove('bt-on'));
   const realFinish = R.finish; let ending = false;
   R.finish = () => { if (ending) realFinish(); };
   let pl = [], T = [], meI = -1, myT = null, LL = null, phase = 'wait', tLeft = DUR, freezeTo = 0, x2To = 0, launchers = [];
@@ -10278,7 +10279,7 @@ function blasenTog(stage, ctx) {
   /* ---- balloons ---- */
   let fw = 600, fh = 400, sz = 80, bandH = 104, last = 0, lanes = 5;
   const B = new Map(); let bSeq = 0;
-  function measure() { const r = field.getBoundingClientRect(); fw = Math.max(240, r.width); fh = Math.max(260, r.height); lanes = clamp(Math.floor(fw / 78), Math.max(4, (pl.length || 2) + 2), 10); sz = Math.round(Math.min(fw / lanes * 0.86, 100, (fh - bandH) * 0.2)); field.style.setProperty('--sz', sz + 'px'); }
+  function measure() { const r = field.getBoundingClientRect(); fw = Math.max(240, r.width); fh = Math.max(260, r.height); lanes = clamp(Math.floor(fw / 78), Math.max(4, (pl.length || 2) + 2), 10); sz = Math.round(Math.min(fw / lanes * 0.94, 104, (fh - bandH) * 0.2)); field.style.setProperty('--sz', sz + 'px'); }
   const goldIdx = b => Math.floor(((performance.now() - b.seen) / 1000) / SLOT) % Math.max(1, pl.length);
   function mkEl(b) {
     const el = h('div', { class: 'bln' + (b.sm ? ' sm' : '') + (b.g ? ' gold' : '') + (String(b.s).length > 1 ? ' team' : ''), role: 'button', style: { '--b1': b.g ? '#ffc93c' : BT_COLS[b.c % BT_COLS.length] } }, h('i', { class: 'str' }), h('div', { class: 'bb' }, h('b', {}, b.g ? '🎁' : b.s)));
@@ -10491,7 +10492,7 @@ function blasenTog(stage, ctx) {
         row('🏅 ' + R.pts + ' Punkte (je 3 = 1 ⭐)', sP), row((missionDone ? '✅ ' : '❌ ') + 'Ziel: ' + (mission ? mission[0] : ''), sM), row('🏆 Platz ' + place, sR), row(newRec ? '🎉 Neuer Rekord: ' + R.pts + '!' : '📈 Dein Rekord: ' + rec, sN), M.pierce ? h('p', {}, '🏹 ' + M.pierce + '× Durchschuss') : null,
         h('div', { class: 'bt-row tot' }, h('span', {}, 'Zusammen'), h('b', {}, '⭐ ' + total))),
       h('button', { class: 'btn gold', onclick: () => { AE.play('tap'); realFinish(); R.doneMs = DUR * 1000; if (R.tog) R.tog.pub(); } }, h('span', { html: ICON.next }), 'Weiter'));
-    const box = h('div', { class: 'gold-end' }, card); field.appendChild(box);
+    const box = h('div', { class: 'gold-end bt-endfix' }, card); scr.appendChild(box);
     if (total) App.later(() => addStars(total, card), 600);
     if (place === 1) { AE.play('win'); FX.confetti(90); } else AE.play('ok');
     const msg = place === 1 ? ['Du hast gewonnen!', 'ربحتي!'] : place === 2 ? ['Platz zwei! Super!', 'المركز التاني! برافو!'] : ['Gut gespielt! Nächstes Mal schaffst du es!', 'لعبتي منيح! المرة الجاية بتربحي!'];

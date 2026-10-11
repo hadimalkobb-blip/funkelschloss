@@ -2139,6 +2139,27 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 .target-badge .crys.team{font-size:clamp(34px,6vw,54px)}
 .bln.team .bb b{font-size:calc(var(--sz,84px)*.42)}
 .bln.sm.team .bb b{font-size:calc(var(--sz,84px)*.72*.42)}
+/* Ballon-Jagd: use the whole screen (phone + iPad) */
+.screen.bt{gap:6px;max-width:none}
+.bt .tog-strip{position:fixed;right:12px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:60;background:none!important;border:0!important;box-shadow:none!important;padding:0!important;margin:0!important;width:auto!important;min-height:0!important}
+.bt .tog-strip .tog-row2{display:none}
+.bt .bub-head{flex-wrap:nowrap;gap:8px;justify-content:space-between}
+.bt .target-badge .crys{min-width:64px;height:56px;padding:0 12px;font-size:36px;clip-path:none;border-radius:16px;box-shadow:0 3px 10px rgba(0,0,0,.12),inset 0 0 0 3px #ffd34d}
+.bt .target-badge .crys.team{font-size:30px}
+.bt .rbtn{flex:none}
+.bt .bt-timer{font-size:19px;padding:5px 12px;flex:none}
+.bt .bt-mission{font-size:12.5px;line-height:1.25;max-width:42vw;padding:5px 10px;white-space:normal}
+.bt .bub-field{flex:1 1 auto;min-height:0!important;height:auto}
+.bt-meter{padding:4px 12px;margin-top:0;gap:8px;flex-wrap:nowrap}
+.bt-meter small{white-space:nowrap}
+.bt-pts{font-size:17px}
+.bt-stars i{font-size:19px}
+.bt-endfix{position:fixed;inset:0;z-index:200;overflow:auto;padding:16px;align-items:center;justify-items:center}
+.bt-endfix .bt-endc{max-height:none;margin:auto}
+.bt-podi .tp-av{width:34px;height:34px;flex:none;padding:2px}
+.bt-podi .tp-av>*{width:100%;height:100%}
+@media (max-width:600px){.bt-meter{font-size:13px;gap:6px}.bt-stars i{font-size:16px;margin:0}.bt .bt-mission{max-width:46vw}}
+body.bt-on .spk{top:auto;bottom:calc(62px + env(safe-area-inset-bottom,0px))}
 
 </style>
 <svg id="defs" width="0" height="0" aria-hidden="true"></svg>
@@ -2154,6 +2175,6 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>window.FUNKEL_SITE = 1;</script>
-<script src="app.js?v=1336915"></script>
+<script src="app.js?v=1337026"></script>
 </body>
 </html>

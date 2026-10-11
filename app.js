@@ -4550,9 +4550,9 @@ GAME_IMPL.gold = {
     function say(p, kind, force) {
       if (p.me) return; const now = performance.now(); if (!force && now - p.bubT < 2200) return;
       p.bubT = now; const line = pick(BOT_SAY[kind]); p.bub.textContent = line; p.bub.hidden = false;
-      if (typeof emojiBurst === 'function') emojiBurst(p.bub, { gold: ['⭐', '✨', '💰'], big: ['💪', '💦'], gem: ['💎', '✨'], rock: ['🪨', '💥'], miss: ['💨'], sack: ['🎁', '❓'], win: ['🏆', '🎉'], lose: ['💫'] }[kind] || ['✨'], 2);
+      if (typeof emojiBurst === 'function' && botEmoOn(p.id)) emojiBurst(p.bub, { gold: ['⭐', '✨', '💰'], big: ['💪', '💦'], gem: ['💎', '✨'], rock: ['🪨', '💥'], miss: ['💨'], sack: ['🎁', '❓'], win: ['🏆', '🎉'], lose: ['💫'] }[kind] || ['✨'], 2);
       if ((force || Math.random() < 0.55) && typeof BotTalk !== 'undefined' && BOT_VOICE[p.id]) BotTalk.add(p.id, line, { maxWait: force ? 5000 : 2200 });
-      if (typeof botMood === 'function' && p.bub && p.bub.parentNode) botMood(p.bub.parentNode, { gold: 'ok', big: 'plan', gem: 'love', rock: 'miss', miss: 'miss', sack: 'think', win: 'win', lose: 'lose' }[kind] || 'ok'); p.bub.classList.remove('in'); void p.bub.offsetWidth; p.bub.classList.add('in');
+      if (typeof botMood === 'function' && p.bub && p.bub.parentNode && botEmoOn(p.id)) botMood(p.bub.parentNode, { gold: 'ok', big: 'plan', gem: 'love', rock: 'miss', miss: 'miss', sack: 'think', win: 'win', lose: 'lose' }[kind] || 'ok'); p.bub.classList.remove('in'); void p.bub.offsetWidth; p.bub.classList.add('in');
       AE.play('chatter', { p: p.pitch, pan: (p.fx - 0.5) * 1.2 });
       clearTimeout(p.bubTo); p.bubTo = setTimeout(() => { p.bub.hidden = true; }, 1900);
     }
@@ -5663,26 +5663,31 @@ const Speaker = {
 };
 const BotTalk = {
   q: [], busyAt: 0, lastEnd: 0, speaking: false, t: null,
-  add(bot, text, o) {
-    o = o || {}; if (!text) return;
-    if (S.botTalk === 0 && !o.test) return;
+  /* turns a wanted line into what this friend really does (settings: off, how often, own messages, length, emoji/words) */
+  make(bot, text, o) {
+    o = o || {}; if (!text) return null;
+    if (S.botTalk === 0 && !o.test) return null;
     const C = botCfg(), B = (C.bots && C.bots[bot]) || {}, mine = B.mine || [];
-    /* "how often": nobody starts a new line before the chosen pause is over */
-    if (!o.force && !o.test && C.gap && (this.speaking || Date.now() - this.lastEnd < C.gap * 1000)) return;
+    if (!o.force && !o.test && C.gap && (this.speaking || Date.now() - this.lastEnd < C.gap * 1000)) return null;
     let msg = o.msg ? botMsg(o.msg) : null, ar = o.ar;
     if (!o.test) {
       if (mine.length && (B.only || Math.random() < 0.35)) msg = botMsg(pick(mine));
-      else if ((B.off || []).includes(text)) { if (!mine.length) return; msg = botMsg(pick(mine)); }
+      else if ((B.off || []).includes(text)) { if (!mine.length) return null; msg = botMsg(pick(mine)); }
     }
     if (msg) { text = msg.t || ''; ar = ''; }
-    /* "how much": a line that is too long becomes just the feeling; each friend can have its own mode */
     let mode = B.show || C.show; const maxW = [0, 4, 9, 999][C.len] || 999;
-    if (mode !== 'emoji' && !msg && text.split(/\s+/).length > maxW) mode = 'emoji';
+    /* too long: in "emoji + words" it becomes just the feeling; "only words" always keeps the words */
+    if (mode === 'both' && !msg && text.split(/\s+/).length > maxW) mode = 'emoji';
     if (msg && !msg.t && !msg.snd) mode = 'emoji';
-    if (this.q.length >= 3) this.q.shift();
-    this.q.push({ bot, text, ar: ar != null ? ar : botAr(text), msg, mode, feel: feelOf(o.cat), at: Date.now(), maxWait: o.maxWait || 4500, onSpeak: o.onSpeak, gen: App.gen });
-    this.pump();
+    return { bot, text, ar: ar != null ? ar : botAr(text), msg, mode, feel: feelOf(o.cat), at: Date.now(), maxWait: o.maxWait || 4500, onSpeak: o.onSpeak, gen: App.gen };
   },
+  add(bot, text, o) {
+    const it = this.make(bot, text, o); if (!it) return;
+    if (this.q.length >= 3) this.q.shift();
+    this.q.push(it); this.pump();
+  },
+  /* say it right now and wait (turn-based games) */
+  sayNow(bot, text, o) { const it = this.make(bot, text, Object.assign({ force: true }, o || {})); if (!it) return Promise.resolve(null); return this.play(it).then(() => it); },
   pump() {
     clearTimeout(this.t);
     if (!this.q.length) return;
@@ -5692,20 +5697,25 @@ const BotTalk = {
     if (Speech.busy) this.busyAt = now;
     const idle = !Speech.busy && now - this.busyAt > 550 && now - this.lastEnd > 900;
     if (!idle) { this.t = setTimeout(() => this.pump(), 220); return; }
-    const it = this.q.shift(), F = botFeel(it.feel);
-    if (it.onSpeak) try { it.onSpeak(it.text); } catch (e) { }
+    this.play(this.q.shift()).then(() => { this.t = setTimeout(() => this.pump(), 300); });
+  },
+  play(it) {
+    const F = botFeel(it.feel);
+    if (it.onSpeak) try { it.onSpeak(it.text, it); } catch (e) { }
     this.speaking = true;
-    const done = () => { Speaker.hide(); this.speaking = false; this.lastEnd = Date.now(); this.busyAt = Date.now(); this.t = setTimeout(() => this.pump(), 300); };
-    const m = it.msg, emoOn = botEmoOn(it.bot), fe = m && m.e ? { emo: m.e } : { emo: F.e, pic: F.pic };
-    /* an own message with its own sound: show it and play the sound (no reading voice) */
-    if (m && m.snd) { Speaker.show(it.bot, it.mode === 'emoji' ? '' : it.text, it.mode === 'words' && !(!it.text) ? null : fe); playMsgSound(it.bot, m).then(done, done); return; }
-    feelSnd(F.snd, it.bot, F.id);
-    if (it.mode === 'emoji' || !it.text) { Speaker.show(it.bot, '', emoOn || (m && m.e) ? fe : { emo: '💬' }); setTimeout(done, 1500); return; }
-    Speaker.show(it.bot, it.text, it.mode === 'both' && emoOn ? fe : null);
-    const arab = /[\u0600-\u06FF]/.test(it.text);
-    const parts = m ? [Object.assign(BOT(it.bot + (arab ? '_ar' : ''), it.text), { custom: 1 })] : [BOT(it.bot, it.text), it.ar ? BOT(it.bot + '_ar', it.ar) : null];
-    const speak = () => { const p = Nur.say(parts, { keep: false, noBubble: true, noAr: true, botLine: true }); if (p && p.then) p.then(done, done); else done(); };
-    if (F.snd !== 'none') setTimeout(speak, 380); else speak();
+    return new Promise(res => {
+      const done = () => { Speaker.hide(); this.speaking = false; this.lastEnd = Date.now(); this.busyAt = Date.now(); res(); };
+      const m = it.msg, emoOn = !(((botCfg().bots || {})[it.bot] || {}).emoOff), fe = m && m.e ? { emo: m.e } : { emo: F.e, pic: F.pic };
+      /* an own message with its own sound: show it and play the sound (no reading voice) */
+      if (m && m.snd) { Speaker.show(it.bot, it.mode === 'emoji' ? '' : it.text, it.mode === 'words' && it.text ? null : fe); playMsgSound(it.bot, m).then(done, done); return; }
+      feelSnd(F.snd, it.bot, F.id);
+      if (it.mode === 'emoji' || !it.text) { Speaker.show(it.bot, '', emoOn || (m && m.e) ? fe : { emo: '💬' }); setTimeout(done, 1500); return; }
+      Speaker.show(it.bot, it.text, it.mode === 'both' && emoOn ? fe : null);
+      const arab = /[؀-ۿ]/.test(it.text);
+      const parts = m ? [Object.assign(BOT(it.bot + (arab ? '_ar' : ''), it.text), { custom: 1 })] : [BOT(it.bot, it.text), it.ar ? BOT(it.bot + '_ar', it.ar) : null];
+      const speak = () => { const p = Nur.say(parts, { keep: false, noBubble: true, noAr: true, botLine: true }); if (p && p.then) p.then(done, done); else done(); };
+      if (F.snd !== 'none') setTimeout(speak, 380); else speak();
+    });
   },
   clear() { this.q = []; clearTimeout(this.t); }
 };
@@ -5714,6 +5724,8 @@ function botLine(bot, cat) {
   const set = (BOT_TALK[bot] && BOT_TALK[bot][cat]) || (NB_LINES[cat]) || NB_LINES.taunt;
   const key = bot + ':' + cat, rec = botRecent[key] || (botRecent[key] = []);
   let opts = set.filter(l => !rec.includes(l)); if (!opts.length) { rec.length = 0; opts = set.slice(); }
+  /* "how much": prefer lines that fit the chosen length */
+  const maxW = [0, 4, 9, 999][botCfg().len] || 999, fit = opts.filter(l => l.split(/\s+/).length <= maxW); if (fit.length) opts = fit;
   const l = pick(opts); rec.push(l); if (rec.length > Math.max(1, set.length - 1)) rec.shift();
   return l;
 }
@@ -5751,6 +5763,7 @@ function botSay(botId, kind, el, o) {
   if (fun) {
     const key = botId + ':fun:' + kind, rec = botRecent[key] || (botRecent[key] = []);
     let opts = fun.filter(l => !rec.includes(l[0])); if (!opts.length) { rec.length = 0; opts = fun.slice(); }
+    const maxW = [0, 4, 9, 999][botCfg().len] || 999, fit = opts.filter(l => l[0].split(/\s+/).length <= maxW); if (fit.length) opts = fit;
     const l = pick(opts); rec.push(l[0]); if (rec.length > Math.max(1, fun.length - 1)) rec.shift();
     BotTalk.add(botId, l[0], { ar: l[1], cat: kind, maxWait: o.force ? 7000 : 3500 });
     return l[0];
@@ -6017,7 +6030,7 @@ function Neighbors(o) {
     for (const x of els) {
       const r = x.el.getBoundingClientRect(); if (r.right < vr.left + 30 || r.left > vr.right - 30) continue;
       if (x.n.snow.length && now - (x.n.hitAt || 0) > 15000) {
-        careT = now; botSay(x.bot.id, 'clean', x.el, { n: 3 }); emojiBurst(x.el, ['🧹', '✨', '💨'], 4); AE.play('wipe');
+        careT = now; botSay(x.bot.id, 'clean', x.el, { n: 3 }); if (botEmoOn(x.bot.id)) emojiBurst(x.el, ['🧹', '✨', '💨'], 4); AE.play('wipe');
         const steps = x.n.snow.length; for (let k = 0; k < steps; k++) App.later(() => { x.n.snow.shift(); paintSnow(x); AE.play(k % 3 ? 'wipe' : 'sparkle'); if (!x.n.snow.length) { FX.burstAt(x.el, { n: 22 }); Store.save(); } }, 400 + k * 220);
         return;
       }
@@ -6249,8 +6262,11 @@ function botLinesPanel(id, repaint) {
   paintEmo();
   const sndInfo = h('span', { class: 'bc-sndinfo' }, '');
   const paintSnd = () => { sndInfo.innerHTML = ''; if (draft.ab) sndInfo.append('🎵 ', h('button', { class: 'btn soft small', type: 'button', onclick: () => playAB(draft.ab) }, '▶'), h('button', { class: 'btn soft small', type: 'button', onclick: () => { draft.ab = null; paintSnd(); } }, '✖')); };
-  const file = h('input', { type: 'file', accept: 'audio/*', hidden: true });
-  file.onchange = async () => { const f = file.files && file.files[0]; if (!f) return; if (f.size > 3000000) { toast('Zu groß – höchstens 3 MB'); return; } draft.ab = await f.arrayBuffer(); paintSnd(); playAB(draft.ab); };
+  const file = h('input', { type: 'file', accept: 'audio/*,.mp3,.m4a,.aac,.wav,.ogg,.opus,.webm,.mp4', hidden: true });
+  file.onchange = async () => { const f = file.files && file.files[0]; file.value = ''; if (!f) return; if (f.size > 3000000) { toast('Zu groß – höchstens 3 MB'); return; }
+    let ab; try { ab = await f.arrayBuffer(); } catch (e) { toast('Die Datei kann nicht gelesen werden.'); return; }
+    if (!(await canDecode(ab))) { toast('Dieses Tonformat geht nicht (mp3, m4a oder wav nehmen).'); return; }
+    draft.ab = ab; paintSnd(); playAB(ab); };
   const recB = h('button', { class: 'btn soft small bc-rec', type: 'button' }, '🎙️ Aufnehmen');
   recB.onclick = () => recToggle(recB, ab => { draft.ab = ab; paintSnd(); playAB(ab); });
   const save = h('button', { class: 'btn gold', type: 'button' }, '➕ Speichern');
@@ -6264,15 +6280,19 @@ function botLinesPanel(id, repaint) {
   const mine = h('div', { class: 'bc-mine' }, ...B.mine.map((raw, k) => { const m = botMsg(raw); return h('div', { class: 'bc-li own' }, m.e ? h('b', { class: 'bc-me' }, m.e) : null, h('span', {}, m.t || ''), m.snd ? h('i', { class: 'bc-tag' }, '🎵') : null,
     h('button', { class: 'btn soft small', type: 'button', onclick: () => testMsg(m) }, '🔊'),
     h('button', { class: 'btn soft small', type: 'button', 'aria-label': 'Löschen', onclick: () => { if (m.snd) SndDB.del('msg:' + id + ':' + m.k); B.mine.splice(k, 1); if (!B.mine.length) B.only = false; Store.save(); AE.play('tap'); repaint(); } }, '🗑️')); }));
-  wrap.append(h('p', { class: 'hub-sub' }, '✏️ Eigene Nachricht'), inp, emoRow, h('div', { class: 'bc-add' }, recB, h('button', { class: 'btn soft small', type: 'button', onclick: () => file.click() }, '📁 Ton vom Handy'), sndInfo, file), h('div', { class: 'bc-add' }, tryB, save), mine);
+  /* inside the Claude app the microphone and file picking are blocked: offer the website */
+  const appNote = !FUNKEL_SITE ? h('div', { class: 'bc-note' }, h('span', {}, '🎙️ 📁 ➜ 🌐'), h('a', { class: 'btn soft small', href: FUNKEL_SITE_URL, target: '_blank', rel: 'noopener' }, '🌐 Webseite öffnen')) : null;
+  wrap.append(h('p', { class: 'hub-sub' }, '✏️ Eigene Nachricht'), appNote, inp, emoRow, h('div', { class: 'bc-add' }, recB, h('button', { class: 'btn soft small', type: 'button', onclick: () => file.click() }, '📁 Ton vom Handy'), sndInfo, file), h('div', { class: 'bc-add' }, tryB, save), mine);
   if (B.mine.length) wrap.append(toggleRow('Nur meine Nachrichten', !!B.only, v => { B.only = v; Store.save(); }));
-  /* a device voice for own sentences without an own sound (recorded voices only know the built-in lines) */
+  /* the reading voice for own sentences without an own sound: any German/Arabic voice of this device */
   const vs = (Speech.voices || []).filter(v => /^(de|ar)/i.test(v.lang || ''));
-  if (vs.length && B.mine.some(m => botMsg(m).t && !botMsg(m).snd)) {
+  const nm = (QUIZ_BOTS.find(x => x.id === id) || {}).name || '';
+  const vtest = () => testMsg({ t: (B.mine.map(botMsg).find(x => x.t && !x.snd) || {}).t || ('Hallo! Ich bin ' + nm + '.') });
+  if (vs.length) {
     const sel = h('select', { class: 'bc-sel' }, h('option', { value: '' }, '🎙️ Automatisch'), ...vs.map(v => h('option', { value: v.voiceURI, selected: B.dev === v.voiceURI }, v.name + ' (' + v.lang + ')')));
-    sel.onchange = () => { B.dev = sel.value || undefined; Store.save(); const m = B.mine.map(botMsg).find(x => x.t && !x.snd); if (m) testMsg(m); };
-    wrap.append(h('p', { class: 'hub-sub' }, '🎙️ Stimme für eigene Sätze'), sel);
-  }
+    sel.onchange = () => { B.dev = sel.value || undefined; Store.save(); vtest(); };
+    wrap.append(h('p', { class: 'hub-sub' }, '🗣️ Vorlese-Stimme für eigene Sätze'), h('div', { class: 'bc-add' }, sel, h('button', { class: 'btn soft small', type: 'button', onclick: vtest }, '🔊')));
+  } else wrap.append(h('p', { class: 'hub-sub' }, '🗣️ Vorlese-Stimme'), h('div', { class: 'bc-note' }, h('span', {}, '🔇 Hier gibt es keine Gerätestimmen'), !FUNKEL_SITE ? h('a', { class: 'btn soft small', href: FUNKEL_SITE_URL, target: '_blank', rel: 'noopener' }, '🌐 Webseite öffnen') : null));
   /* the built-in lines: tap to switch one off */
   const cats = BOT_LINES[id] || {};
   const list = h('div', { class: 'bc-list' });
@@ -6298,8 +6318,10 @@ function botResetAll(done) {
 
 /* own messages: older saves were plain strings */
 const botMsg = m => typeof m === 'string' ? { t: m, e: '' } : (m || { t: '' });
-const botEmoOn = id => !((botCfg().bots || {})[id] || {}).emoOff;
+/* emoji above a friend (mood pops, bursts): off when switched off or when it should only use words */
+const botEmoOn = id => { const C = botCfg(), B = (C.bots || {})[id] || {}; return !B.emoOff && (B.show || C.show) !== 'words'; };
 /* play raw audio bytes (a fresh recording or a file) */
+async function canDecode(ab) { unlockAudio(); if (!AE.ctx) return true; try { await AE.ctx.decodeAudioData(ab.slice(0)); return true; } catch (e) { return false; } }
 async function playAB(ab, max) {
   unlockAudio(); if (!AE.ctx || !ab) return;
   let b; try { b = await AE.ctx.decodeAudioData(ab.slice(0)); } catch (e) { toast('Diesen Ton kann das Gerät nicht abspielen.'); return; }
@@ -6315,7 +6337,7 @@ let recNow = null;
 async function recToggle(btn, done) {
   if (recNow) { recNow.stop(); return; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') { toast('Aufnehmen geht hier nicht – öffne die Webseite im Browser.'); return; }
-  let st; try { st = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) { toast('Mikrofon nicht erlaubt.'); return; }
+  let st; try { st = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) { toast(FUNKEL_SITE ? 'Mikrofon nicht erlaubt – in den Browser-Einstellungen erlauben.' : 'In der Claude-App geht das Mikrofon nicht – öffne die Webseite.'); return; }
   const chunks = [], mr = new MediaRecorder(st); let sec = 0;
   mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   mr.onstop = async () => { clearInterval(tk); clearTimeout(cap); st.getTracks().forEach(t => t.stop()); recNow = null; btn.classList.remove('on'); btn.textContent = '🎙️ Aufnehmen'; const bl = new Blob(chunks, { type: mr.mimeType || 'audio/webm' }); if (bl.size) done(await bl.arrayBuffer()); };
@@ -11083,10 +11105,10 @@ function BotRace(R) {
     async playTurn() {
       const p = pending; pending = null; if (!p) return;
       for (const [b, cat, text] of p) {
-        const line = text || botLine(b.id, cat);
-        botMood(b.el, cat || 'idea'); bubble(b, line); emojiBurst(b.el, [(BOT_MOOD[cat || 'idea'] || ['✨'])[0], '✨'], 2);
-        AE.play('chatter', { p: b.pitch });
-        const arl = botAr(line); Speaker.show(b.id, line); await Nur.say([BOT(b.id, line), arl ? BOT(b.id + '_ar', arl) : null], { keep: false, noBubble: true, noAr: true, botLine: true }); Speaker.hide();
+        /* goes through the friends settings (how often, emoji/words, own messages, sounds) */
+        await BotTalk.sayNow(b.id, text || botLine(b.id, cat), { cat: cat || 'idea', onSpeak: (t, it) => {
+          bubble(b, it.mode === 'emoji' || !it.text ? (it.msg && it.msg.e) || botFeel(it.feel).e : it.text);
+          if (botEmoOn(b.id)) { botMood(b.el, cat || 'idea'); emojiBurst(b.el, [botFeel(feelOf(cat || 'idea')).e, '✨'], 2); } } });
         await sleep(180);
       }
     },

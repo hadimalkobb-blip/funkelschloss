@@ -10586,7 +10586,7 @@ function blasenTog(stage, ctx) {
     return ch;
   }
   function publish(force) {
-    const now = Date.now(); if (SOLO) { dirty = false; return; }
+    const now = Date.now(); if (SOLO || phase === 'lobby') { dirty = false; return; }
     if (!force && !((dirty && now - lastPub > 200) || now - lastPub > 1200)) return;
     dirty = false; lastPub = now;
     const o = { bz: { pl, T, st: stg, ph: phase, tl: Math.round(tLeft * 10) / 10, hn: Math.round(hnow()) }, bb: [...B.values()].map(b => [b.id, b.l, b.s, Math.round(b.x * 1000) / 1000, Math.round(b.y0 * 1000) / 1000, Math.round(b.t0), b.vy, b.o, b.c, b.sm, b.g]), be: E.slice() };
@@ -10652,6 +10652,7 @@ function blasenTog(stage, ctx) {
   function applySnap() {
     const hp = Net.hostPresence() || {};
     if (hp.bz && hp.bz !== lastBz) {
+      if (phase === 'lobby') { if (hp.bz.ph === 'lobby') return; leaveLobby(); }  /* the host pressed ▶ */
       lastBz = hp.bz; if (hp.bz.hn != null) { const o2 = performance.now() - hp.bz.hn; off = off == null ? o2 : Math.min(off + 2, o2); }
       if (!pl.length || hp.bz.pl.join() !== pl.join()) { setup(hp.bz.pl, hp.bz.T); measure(); }
       if (hp.bz.st === 3 && stg === 2) { stg = 3; for (const [id, b] of B) if (b.o < 0 && !b.g) { b.popped = 1; B.delete(id); } stageBanner(); }
@@ -10702,24 +10703,29 @@ function blasenTog(stage, ctx) {
   }
   const goldTxt = el => { el.innerHTML = ''; el.append(String(Math.floor(S.gold || 0)), h('span', { html: ICON.coin })); };
   function showLobby() {
-    phase = 'lobby'; setup([myId], ['']); measure(); hud.hidden = true; field.classList.add('lobby');
+    /* together: everybody gets the lobby and the shop; the host's ▶ starts the round for all, guests wait (⏳) */
+    const ids = SOLO ? [myId] : allRows().map(r => r.id).slice(0, 8);
+    phase = 'lobby'; setup(ids, ids.map(() => '')); measure(); hud.hidden = true; field.classList.add('lobby');
     const goldEl = h('div', { class: 'ar-gold' }); goldTxt(goldEl);
-    const play = h('button', { class: 'btn gold bj-play', type: 'button' }, '▶ Spielen');
+    const play = amHost ? h('button', { class: 'btn gold bj-play', type: 'button' }, '▶ Spielen') : h('div', { class: 'bj-wait', 'aria-label': 'Warten' }, '⏳');
     const menuB = h('button', { class: 'bj-menub', type: 'button' }, h('span', {}, '🎨'), 'Menü');
     lobbyEl = h('div', { class: 'bj-lobby' }, h('div', { class: 'bj-lob-card' }, h('div', { class: 'bj-lob-top' }, h('h1', {}, 'Ballon-Jagd'), goldEl), S.btRecord ? h('div', { class: 'bj-rec' }, '🏆 ' + S.btRecord) : null, h('div', { class: 'bj-lob-btns' }, play, menuB)));
     field.appendChild(lobbyEl);
-    play.onclick = () => { unlockAudio(); AE.play('tap'); startSolo(); };
+    if (amHost) play.onclick = () => { unlockAudio(); AE.play('tap'); startGame(); };
     menuB.onclick = () => { unlockAudio(); AE.play('tap'); openMenu(() => goldTxt(goldEl)); };
     Nur.screen = () => [D('Tippe auf Spielen!'), A('اضغطي على «Spielen»!'), D('Im Menü kannst du Farben, Himmel und Töne kaufen.'), A('بالقائمة فيكي تشتري ألوان وسما وأصوات.')];
     Nur.say([D('Ballon-Jagd!'), ...arIf('صيد البالونات!')], { keep: false });
   }
-  function startSolo() {
-    if (phase !== 'lobby') return; closeMenu();
-    if (J.tempo) { d = J.tempo; SPEED = [0, 0.1, 0.115, 0.13][d]; }
-    soloRows = [soloRows[0], ...playBots(J.bots).map(b => ({ id: 'b:' + b.id, bot: b, nm: b.name, col: b.col || '#9b6bff', me: false }))];
-    B.clear(); if (lobbyEl) { lobbyEl.remove(); lobbyEl = null; }
+  function leaveLobby() {
+    closeMenu(); B.clear(); if (lobbyEl) { lobbyEl.remove(); lobbyEl = null; }
     Nur.screen = () => LL ? [D('Schieß nur auf Ballons mit deinem Buchstaben!'), A('اضربي بس البالونات اللي عليها حرفك!')] : [];
-    hud.hidden = false; field.classList.remove('lobby'); mission = null; phase = 'wait'; hostStart();
+    hud.hidden = false; field.classList.remove('lobby'); mission = null; phase = 'wait';
+  }
+  function startGame() {
+    if (phase !== 'lobby' || !amHost) return;
+    if (J.tempo) { d = J.tempo; SPEED = [0, 0.1, 0.115, 0.13][d]; }
+    if (SOLO) soloRows = [soloRows[0], ...playBots(J.bots).map(b => ({ id: 'b:' + b.id, bot: b, nm: b.name, col: b.col || '#9b6bff', me: false }))];
+    leaveLobby(); hostStart();
   }
   function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
   function swatch(cat, id) {
@@ -10739,11 +10745,11 @@ function blasenTog(stage, ctx) {
     close.onclick = () => { AE.play('tap'); closeMenu(); };
     menuEl.addEventListener('pointerdown', e => { if (e.target === menuEl) closeMenu(); });
     const paint = () => { goldTxt(goldEl); if (onGold) onGold(); paintTabs(); paintGrid(); };
-    function paintTabs() { tabs.innerHTML = ''; BJ_TABS.filter(t => t[0] !== 'set' || (SOLO && phase === 'lobby')).forEach(([k, ic, nm]) => { const b = h('button', { class: 'bj-tab' + (k === mcat ? ' on' : ''), type: 'button' }, h('span', {}, ic), h('small', {}, nm)); b.onclick = () => { mcat = k; AE.play('tap'); paint(); }; tabs.appendChild(b); }); }
+    function paintTabs() { tabs.innerHTML = ''; BJ_TABS.filter(t => t[0] !== 'set' || (amHost && phase === 'lobby')).forEach(([k, ic, nm]) => { const b = h('button', { class: 'bj-tab' + (k === mcat ? ' on' : ''), type: 'button' }, h('span', {}, ic), h('small', {}, nm)); b.onclick = () => { mcat = k; AE.play('tap'); paint(); }; tabs.appendChild(b); }); }
     const seg = (lab, vals, key) => { const bs = h('div', { class: 'ar-seg' }); vals.forEach(([v, t]) => { const b = h('button', { class: 'ar-segb' + (J[key] === v ? ' on' : ''), type: 'button' }, t); b.onclick = () => { J[key] = v; Store.save(); AE.play('tap'); paintGrid(); }; bs.appendChild(b); }); return h('div', { class: 'bj-set' }, h('b', {}, lab), bs); };
     function paintGrid() {
       grid.innerHTML = '';
-      if (mcat === 'set') { grid.append(seg('🍭', [[0, '0'], [1, '1'], [2, '2'], [3, '3']], 'bots'), seg('⏱', [[0, 'Auto'], [1, '▶'], [2, '▶▶'], [3, '▶▶▶']], 'tempo')); return; }
+      if (mcat === 'set') { grid.append(SOLO ? seg('🍭', [[0, '0'], [1, '1'], [2, '2'], [3, '3']], 'bots') : '', seg('⏱', [[0, 'Auto'], [1, '▶'], [2, '▶▶'], [3, '▶▶▶']], 'tempo')); return; }
       BJ_SHOP[mcat].forEach(it => {
         const [id, nm, price] = it, own = bjOwned(mcat, it), on = J[mcat] === id;
         const b = h('button', { class: 'ar-item bj-item' + (on ? ' on' : '') + (own ? '' : ' lock'), type: 'button' }, h('span', { class: 'bj-sw' }, swatch(mcat, id)), h('b', {}, nm),
@@ -10765,9 +10771,9 @@ function blasenTog(stage, ctx) {
     paint();
   }
   applyLook();
-  if (SOLO) showLobby(); else if (amHost) hostStart();
+  showLobby();
   if (!SOLO) App.clean.push(Net.on(() => { if (!amHost) applySnap(); }));
-  window.__bjx = { J, startSolo, openMenu, phase: () => phase };  /* test hook */
+  window.__bjx = { J, startGame, openMenu, phase: () => phase };  /* test hook */
 }
 
 /* route the two games to their live versions in a together room */

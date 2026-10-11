@@ -2188,6 +2188,43 @@ body.bt-on .spk{top:calc(180px + env(safe-area-inset-top,0px));bottom:auto}
 .bt-sky.lobby .bt-sc,.bt-sky.lobby .bt-lt,.bt-sky.lobby .bt-wm{display:none}
 .bj-shopb{font-size:22px;display:grid;place-items:center;padding:0}
 .bj-wait{font-size:40px;line-height:1;animation:bjpulse 1.2s ease-in-out infinite}@keyframes bjpulse{50%{transform:scale(1.15) rotate(12deg)}}
+/* v52: Freunde control centre */
+.spk{font-size:calc(1em * var(--bot-bub,1))}
+.spk .rc-av{width:calc(46px * var(--bot-bub,1));height:calc(46px * var(--bot-bub,1))}
+.spk .spk-e{font-size:calc(30px * var(--bot-bub,1));line-height:1;flex:none;animation:moodpop .45s cubic-bezier(.3,1.6,.5,1)}
+.spk .spk-pic{width:calc(40px * var(--bot-bub,1));height:calc(40px * var(--bot-bub,1));border-radius:50%;object-fit:cover;flex:none}
+.spk.emo-only .spk-e{font-size:calc(44px * var(--bot-bub,1))}.spk.emo-only .spk-pic{width:calc(56px * var(--bot-bub,1));height:calc(56px * var(--bot-bub,1))}
+.spk .spk-n{font-size:.9em}
+.bot-emo{font-size:calc(24px * var(--bot-emo,1))}
+.bot-emo img{width:calc(30px * var(--bot-emo,1));height:calc(30px * var(--bot-emo,1));border-radius:50%;object-fit:cover;display:block}
+.optgrid.five{grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}.optgrid.five .oc-l{font-size:11.5px}
+.bc-prev{grid-column:1/-1;display:flex;align-items:center;justify-content:center;gap:16px;padding:10px;background:rgba(255,255,255,.6);border-radius:16px;min-height:80px;overflow:hidden}
+.bc-prev .bc-spk{position:static;transform:none;opacity:1;max-width:100%}
+.bc-emo-demo{font-size:calc(24px * var(--bot-emo,1));line-height:1}
+.bc-feels{display:flex;flex-direction:column;gap:8px;grid-column:1/-1}
+.bc-feel{background:rgba(255,255,255,.75);border-radius:16px;padding:8px;display:flex;flex-direction:column;gap:8px}
+.bc-fhead{display:flex;align-items:center;gap:10px}
+.bc-fe{width:52px;height:52px;border-radius:14px;border:2px solid #eadff7;background:#fff;font-size:28px;display:grid;place-items:center;cursor:pointer;padding:0;overflow:hidden}
+.bc-fe img{width:100%;height:100%;object-fit:cover}
+.bc-feel.open .bc-fe{border-color:#ff7aa8}
+.bc-fn{flex:1;display:flex;flex-direction:column;min-width:0}.bc-fn small{opacity:.7;font-weight:700}
+.bc-emos{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px}
+.bc-em{height:44px;border-radius:12px;border:2px solid transparent;background:#fff;font-size:24px;cursor:pointer;padding:0;display:grid;place-items:center;overflow:hidden}
+.bc-em img{width:100%;height:100%;object-fit:cover}
+.bc-em.on,.bc-sn.on{border-color:#ff7aa8;box-shadow:0 0 0 3px rgba(255,122,168,.25)}
+.bc-snds{display:flex;flex-wrap:wrap;gap:6px}
+.bc-sn{border:2px solid transparent;background:#fff;border-radius:999px;padding:8px 12px;font:inherit;font-weight:800;color:inherit;cursor:pointer}
+.bc-lines{display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.55);border-radius:16px;padding:8px 10px 12px}
+.bc-add{display:flex;gap:6px;align-items:center}
+.bc-in{flex:1;min-width:0;border:2px solid #eadff7;border-radius:12px;padding:10px 12px;font:inherit;font-size:16px;background:#fff;color:inherit}
+.bc-sel{width:100%;border:2px solid #eadff7;border-radius:12px;padding:10px;font:inherit;background:#fff;color:inherit}
+.bc-list,.bc-mine{display:flex;flex-direction:column;gap:5px;max-height:none}
+.bc-cat{font-size:20px;margin-top:6px}
+.bc-li{display:flex;align-items:center;gap:8px;background:#fff;border-radius:12px;padding:6px 8px}
+.bc-li>span{flex:1;min-width:0;font-weight:700;font-size:14.5px;line-height:1.3}
+.bc-li.off>span{opacity:.4;text-decoration:line-through}
+.bc-li.own{box-shadow:inset 3px 0 0 #ff7aa8}
+.bc-reset{margin-top:12px;width:100%}
 
 </style>
 <svg id="defs" width="0" height="0" aria-hidden="true"></svg>
@@ -2203,6 +2240,6 @@ body.bt-on .spk{top:calc(180px + env(safe-area-inset-top,0px));bottom:auto}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>window.FUNKEL_SITE = 1;</script>
-<script src="app.js?v=1351269"></script>
+<script src="app.js?v=1369455"></script>
 </body>
 </html>

@@ -1485,7 +1485,7 @@ const Voice = {
   nameStep(n) { const l = /[؀-ۿ]/.test(n) ? 'ar' : 'de'; const e = this.get(l, n) || this.get(l === 'ar' ? 'de' : 'ar', n); return e ? { e } : { tts: n, l }; },
   async run(steps, seg, opt, g) {
     if (opt.onStart) { try { opt.onStart(seg); } catch (e) { } }
-    const rate = speedFactor();
+    const rate = clamp(speedFactor() * (seg.bot && typeof botRateOf === 'function' ? botRateOf(seg.bot) : 1), 0.55, 1.8);
     for (let k = 0; k < steps.length; k++) {
       const st = steps[k];
       if (g !== Speech.gen) return;
@@ -1542,7 +1542,7 @@ const Speech = {
       if (p.pause) { out.push({ l: 'pause', ms: p.pause }); continue; }
       if (p.fx) { out.push({ l: 'fx', t: p.fx }); continue; }
       if (p.nm) { const t = p.nm === 'ar' ? childNameAr() : childName(); push(p.nm === 'ar' && /[\u0600-\u06FF]/.test(t) ? 'ar' : 'de', t, { isName: true }); continue; }
-      if (p.bot) { push(typeof botVoiceKey === 'function' ? botVoiceKey(p.bot) : (BOT_VOICE[p.bot] || 'de'), p.t, { bot: p.bot.replace(/_ar$/, '') }); continue; }
+      if (p.bot) { push(typeof botVoiceKey === 'function' ? botVoiceKey(p.bot) : (BOT_VOICE[p.bot] || 'de'), p.t, { bot: p.bot.replace(/_ar$/, ''), custom: p.custom }); continue; }
       if (p.de != null) { push('de', p.de, { rate: p.rate }); continue; }
       if (p.ar != null) {
         const s = String(p.ar), re = /«([^»\u0600-\u06FF]*)»/g; let last = 0, m;
@@ -1603,7 +1603,7 @@ const Speech = {
   },
   one(seg, opt, g, idx) {
     if (opt.onSeg) try { opt.onSeg(idx, seg); } catch (e) { }
-    if (Voice.ready()) {
+    if (Voice.ready() && !seg.custom) {  /* own sentences have no recording: the device voice says them whole */
       let steps = Voice.plan(seg.l, seg.t);
       if (!steps.some(s => s.e) && seg.base && seg.base !== seg.l && !seg.bot) steps = Voice.plan(seg.base, seg.t);
       if (steps.some(s => s.e)) return Voice.run(steps, seg, opt, g);
@@ -1617,9 +1617,10 @@ const Speech = {
       if (!this.ok) { setTimeout(res, 250); return; }
       if (seg.l === 'ar' && !this.hasAr()) { res(); return; }
       let u; try { u = new SpeechSynthesisUtterance(seg.t); } catch (e) { res(); return; }
-      const v = seg.l === 'ar' ? this.ar : this.de;
+      let v = seg.l === 'ar' ? this.ar : this.de;
+      if (seg.bot && typeof botCfg === 'function') { const dv = ((botCfg().bots || {})[seg.bot] || {}).dev; const f = dv && this.voices.find(x => x.voiceURI === dv); if (f) v = f; }
       try { if (v) { u.voice = v; u.lang = v.lang; } else u.lang = seg.l === 'ar' ? 'ar-SA' : 'de-DE'; } catch (e) { try { u.lang = seg.l === 'ar' ? 'ar-SA' : 'de-DE'; } catch (e2) { } }
-      u.rate = clamp((S.rate || 0.9) * (seg.l === 'ar' ? 0.95 : 1) * (opt.rate || 1) * (seg.rate || 1), 0.45, 1.4);
+      u.rate = clamp((S.rate || 0.9) * (seg.l === 'ar' ? 0.95 : 1) * (opt.rate || 1) * (seg.rate || 1) * (seg.bot && typeof botRateOf === 'function' ? botRateOf(seg.bot) : 1), 0.45, 1.6);
       u.pitch = seg.bot ? ({ muffin: 1.8, kaktus: 0.6, melone: 1.4, donut: 1.9, lolli: 2, eisi: 1.3 }[seg.bot] || 1.5) : seg.l === 'de' ? 1.06 : 1; u.volume = 1;
       let fin = false, started = false; const finish = () => { if (fin) return; fin = true; clearTimeout(this.wd); if (!started && Voice.ready()) this.ttsBroken = true; res(); };
       u.onend = finish; u.onerror = finish;
@@ -2745,7 +2746,7 @@ function newProfileSheet() {
   Nur.say([D('Hallo! Wie heißt du?'), ...arIf('أهلين! شو اسمك؟')], { bubble: true });
 }
 function enterProfile(id, init) {
-  CUR = id; Store.load(id);
+  CUR = id; Store.load(id); try { botSizesApply(); } catch (e) { }
   if (FUNKEL_SITE && !S.site500) { S.site500 = 1; if ((S.earned || 0) < 500) S.earned = 500; if ((S.stars || 0) < 500) S.stars = 500; }
   try { localStorage.setItem('funkelschloss.last', id); } catch (e) { }
   const p = Profiles.get(id);
@@ -5647,11 +5648,13 @@ function emojiBurst(el, list, n) {
 /* who is talking right now: a clear name tag with the friend's picture */
 const Speaker = {
   el: null, t: null,
-  show(id, text) {
-    const b = QUIZ_BOTS.find(x => x.id === id); if (!b) return;
+  /* o.emo / o.pic: the feeling next to (or, without text, instead of) the words */
+  show(id, text, o) {
+    const b = QUIZ_BOTS.find(x => x.id === id); if (!b) return; o = o || {};
     if (!this.el || !this.el.isConnected) { this.el = h('div', { class: 'spk', role: 'status', 'aria-live': 'polite' }); document.body.appendChild(this.el); }
-    clearTimeout(this.t); this.el.innerHTML = ''; this.el.style.setProperty('--c', b.col);
-    this.el.append(h('span', { class: 'rc-av' }, photoEl(b.img, b.emo, 'rc-img')), h('span', { class: 'spk-t' }, h('b', {}, b.name), h('span', {}, text || '')));
+    clearTimeout(this.t); this.el.innerHTML = ''; this.el.style.setProperty('--c', b.col); this.el.classList.toggle('emo-only', !text);
+    const fe = o.pic ? h('img', { class: 'spk-pic', src: o.pic, alt: '' }) : o.emo ? h('span', { class: 'spk-e' }, o.emo) : null;
+    this.el.append(h('span', { class: 'rc-av' }, photoEl(b.img, b.emo, 'rc-img')), fe, text ? h('span', { class: 'spk-t' }, h('b', {}, b.name), h('span', {}, text)) : h('b', { class: 'spk-n' }, b.name));
     void this.el.offsetWidth; this.el.classList.add('show');
     document.querySelectorAll('.talking').forEach(x => x.classList.remove('talking'));
     document.querySelectorAll('img[data-bot="' + id + '"]').forEach(im => { const p = im.closest('.rc-av,.gp-av') || im; p.classList.add('talking'); });
@@ -5662,9 +5665,21 @@ const BotTalk = {
   q: [], busyAt: 0, lastEnd: 0, speaking: false, t: null,
   add(bot, text, o) {
     o = o || {}; if (!text) return;
-    if (S.botTalk === 0 || (S.botTalk === 1 && !o.force && Math.random() < 0.5)) return;
+    if (S.botTalk === 0 && !o.test) return;
+    const C = botCfg(), B = (C.bots && C.bots[bot]) || {}, mine = B.mine || [];
+    /* "how often": nobody starts a new line before the chosen pause is over */
+    if (!o.force && !o.test && C.gap && (this.speaking || Date.now() - this.lastEnd < C.gap * 1000)) return;
+    let custom = !!o.custom, ar = o.ar;
+    if (!o.test) {
+      if (mine.length && (B.only || Math.random() < 0.35)) { text = pick(mine); custom = true; }
+      else if ((B.off || []).includes(text)) { if (!mine.length) return; text = pick(mine); custom = true; }
+    }
+    if (custom) ar = '';
+    /* "how much": a line that is too long becomes just the feeling */
+    let mode = C.show; const maxW = [0, 4, 9, 999][C.len] || 999;
+    if (mode !== 'emoji' && !custom && text.split(/\s+/).length > maxW) mode = 'emoji';
     if (this.q.length >= 3) this.q.shift();
-    this.q.push({ bot, text, ar: o.ar || botAr(text), at: Date.now(), maxWait: o.maxWait || 4500, onSpeak: o.onSpeak, gen: App.gen });
+    this.q.push({ bot, text, ar: ar != null ? ar : botAr(text), custom, mode, feel: feelOf(o.cat), at: Date.now(), maxWait: o.maxWait || 4500, onSpeak: o.onSpeak, gen: App.gen });
     this.pump();
   },
   pump() {
@@ -5676,12 +5691,17 @@ const BotTalk = {
     if (Speech.busy) this.busyAt = now;
     const idle = !Speech.busy && now - this.busyAt > 550 && now - this.lastEnd > 900;
     if (!idle) { this.t = setTimeout(() => this.pump(), 220); return; }
-    const it = this.q.shift();
+    const it = this.q.shift(), F = botFeel(it.feel);
     if (it.onSpeak) try { it.onSpeak(it.text); } catch (e) { }
-    this.speaking = true; Speaker.show(it.bot, it.text);
-    const p = Nur.say([BOT(it.bot, it.text), it.ar ? BOT(it.bot + '_ar', it.ar) : null], { keep: false, noBubble: true, noAr: true, botLine: true });
+    this.speaking = true;
     const done = () => { Speaker.hide(); this.speaking = false; this.lastEnd = Date.now(); this.busyAt = Date.now(); this.t = setTimeout(() => this.pump(), 300); };
-    if (p && p.then) p.then(done, done); else done();
+    feelSnd(F.snd, it.bot, F.id);
+    if (it.mode === 'emoji') { Speaker.show(it.bot, '', { emo: F.e, pic: F.pic }); setTimeout(done, 1500); return; }
+    Speaker.show(it.bot, it.text, it.mode === 'both' ? { emo: F.e, pic: F.pic } : null);
+    const arab = /[\u0600-\u06FF]/.test(it.text);
+    const parts = it.custom ? [Object.assign(BOT(it.bot + (arab ? '_ar' : ''), it.text), { custom: 1 })] : [BOT(it.bot, it.text), it.ar ? BOT(it.bot + '_ar', it.ar) : null];
+    const speak = () => { const p = Nur.say(parts, { keep: false, noBubble: true, noAr: true, botLine: true }); if (p && p.then) p.then(done, done); else done(); };
+    if (F.snd !== 'none') setTimeout(speak, 380); else speak();
   },
   clear() { this.q = []; clearTimeout(this.t); }
 };
@@ -5695,10 +5715,10 @@ function botLine(bot, cat) {
 }
 /* a small symbol pops above a bot to show how it feels (no faces: 💭 thinking, 💡 got it, 💢 cross, 💖 impressed …) */
 function botMood(el, cat) {
-  if (!el) return; const m = BOT_MOOD[cat] || ['✨', 'happy'];
+  if (!el) return; const m = BOT_MOOD[cat] || ['✨', 'happy'], o = botCfg().feel[m[1]] || {};
   let b = el.querySelector(':scope > .bot-emo');
   if (!b) { b = h('i', { class: 'bot-emo', 'aria-hidden': 'true' }); el.appendChild(b); }
-  b.textContent = m[0]; b.className = 'bot-emo m-' + m[1]; void b.offsetWidth; b.classList.add('show');
+  b.innerHTML = ''; if (o.pic) b.appendChild(h('img', { src: o.pic, alt: '' })); else b.textContent = o.e || m[0]; b.className = 'bot-emo m-' + m[1]; void b.offsetWidth; b.classList.add('show');
   clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('show'), cat === 'think' ? 2600 : 1800);
 }
 /* mood + (maybe) a spoken line in the bot's own voice; o.talk=false keeps it silent */
@@ -5706,7 +5726,7 @@ function botReact(bot, cat, el, o) {
   o = o || {}; botMood(el, cat);
   if (o.talk === false) return null;
   const line = botLine(bot, cat);
-  BotTalk.add(bot, line, { maxWait: o.maxWait, onSpeak: t => { if (o.bubble) o.bubble(t); if (el) emojiBurst(el, [(BOT_MOOD[cat] || ['✨'])[0], '✨'], 2); AE.play('chatter', { p: { muffin: 1500, kaktus: 480, melone: 900, donut: 1300 }[bot] || 900 }); } });
+  BotTalk.add(bot, line, { maxWait: o.maxWait, cat, onSpeak: t => { if (o.bubble) o.bubble(t); if (el) emojiBurst(el, [botFeel(feelOf(cat)).e, '✨'], 2); } });
   return line;
 }
 function botBanter(present, bubbleFor) {
@@ -5715,8 +5735,8 @@ function botBanter(present, bubbleFor) {
   if (!opts.length) return false;
   const b = pick(opts);
   const el = id => { const p = present.find(x => (x.id || x) === id); return p && p.el; };
-  BotTalk.add(b[0], b[1], { maxWait: 5000, onSpeak: t => { botMood(el(b[0]), 'idea'); if (bubbleFor) bubbleFor(b[0], t); } });
-  BotTalk.add(b[2], b[3], { maxWait: 9000, onSpeak: t => { botMood(el(b[2]), 'ok'); if (bubbleFor) bubbleFor(b[2], t); } });
+  BotTalk.add(b[0], b[1], { maxWait: 5000, cat: 'idea', onSpeak: t => { botMood(el(b[0]), 'idea'); if (bubbleFor) bubbleFor(b[0], t); } });
+  BotTalk.add(b[2], b[3], { maxWait: 9000, cat: 'ok', force: true, onSpeak: t => { botMood(el(b[2]), 'ok'); if (bubbleFor) bubbleFor(b[2], t); } });
   return true;
 }
 /* old entry point (neighbours, battles): now also waits its turn */
@@ -5729,11 +5749,11 @@ function botSay(botId, kind, el, o) {
     const key = botId + ':fun:' + kind, rec = botRecent[key] || (botRecent[key] = []);
     let opts = fun.filter(l => !rec.includes(l[0])); if (!opts.length) { rec.length = 0; opts = fun.slice(); }
     const l = pick(opts); rec.push(l[0]); if (rec.length > Math.max(1, fun.length - 1)) rec.shift();
-    BotTalk.add(botId, l[0], { ar: l[1], maxWait: o.force ? 7000 : 3500 });
+    BotTalk.add(botId, l[0], { ar: l[1], cat: kind, maxWait: o.force ? 7000 : 3500 });
     return l[0];
   }
   const line = botLine(botId, kind);
-  BotTalk.add(botId, line, { maxWait: o.force ? 6000 : 3000 });
+  BotTalk.add(botId, line, { cat: kind, maxWait: o.force ? 6000 : 3000 });
   return line;
 }
 
@@ -6097,6 +6117,163 @@ function Neighbors(o) {
   return { layout, checkUpgrade, startBattle, onTap, battlesLeft, get battle() { return !!battle; }, els };
 }
 
+/* ======================= Freunde control centre: how often they talk, emoji or words, how long, sizes, speed,
+   a feeling for every reaction (emoji or own photo + a sound, also an own recording), own sentences per friend ======================= */
+const BOT_FEELS = [['happy', 'Freude', '✨'], ['love', 'Liebe', '💖'], ['cheer', 'Mut', '💪'], ['angry', 'Ärger', '💢'], ['sad', 'Traurig', '💧'], ['think', 'Denken', '💭'], ['idea', 'Idee', '💡'], ['plan', 'Plan', '⚙️']];
+/* no faces, people or animals (house rule) — an own photo can be used instead */
+const FEEL_EMO = ['✨', '⭐', '🌟', '💖', '❤️', '💕', '🎉', '🎊', '🏆', '🎈', '🌈', '🍀', '👍', '👏', '💪', '👋', '💢', '⚡', '🔥', '💥', '💧', '🌧️', '❄️', '💭', '💡', '❓', '❗', '⚙️'];
+const FEEL_SND = [['chatter', 'Plappern'], ['lachen', 'Lachen'], ['grr', 'Grrr'], ['oh', 'Ohhh'], ['wow', 'Wow'], ['klatschen', 'Klatschen'], ['plopp', 'Plopp'], ['boing', 'Boing'], ['glitzer', 'Glitzer'], ['zisch', 'Zisch'], ['none', 'Still']];
+const BOT_GAPS = [[null, '🔇', 'Aus'], [30, '🌙', 'Selten'], [15, '☁️', 'Manchmal'], [6, '☀️', 'Oft'], [0, '⚡', 'Immer']];
+const BOT_PITCH = { muffin: 1500, kaktus: 480, melone: 900, donut: 1300, lolli: 1700, eisi: 1100 };
+function botCfg() {
+  if (!S.botCfg || typeof S.botCfg !== 'object') S.botCfg = {};
+  const C = S.botCfg;
+  if (C.gap === undefined) C.gap = S.botTalk === 1 ? 15 : 0;
+  if (!C.show) C.show = 'words'; if (!C.len) C.len = 3;
+  if (!C.rate) C.rate = 1; if (!C.size) C.size = 1; if (!C.emo) C.emo = 1;
+  if (!C.feel || typeof C.feel !== 'object') C.feel = {}; if (!C.bots || typeof C.bots !== 'object') C.bots = {};
+  return C;
+}
+const botOpt = id => { const C = botCfg(); if (!C.bots[id] || typeof C.bots[id] !== 'object') C.bots[id] = {}; const B = C.bots[id]; B.off = B.off || []; B.mine = B.mine || []; return B; };
+function botFeel(type) {
+  const d = BOT_FEELS.find(f => f[0] === type) || BOT_FEELS[0], o = botCfg().feel[d[0]] || {};
+  return { id: d[0], e: o.e || d[2], snd: o.snd || 'chatter', pic: o.pic || null };
+}
+const feelOf = cat => (BOT_MOOD[cat] && BOT_MOOD[cat][1]) || (BOT_FEELS.some(f => f[0] === cat) ? cat : 'happy');
+function botRateOf(id) { const C = botCfg(), B = (C.bots && C.bots[id]) || {}; return clamp((C.rate || 1) * (B.rate || 1), 0.5, 1.8); }
+function botSizesApply() { const C = botCfg(), r = document.documentElement.style; r.setProperty('--bot-bub', String(C.size)); r.setProperty('--bot-emo', String(C.emo)); }
+/* own recordings live in IndexedDB (too big for the normal save) */
+const SndDB = {
+  p: null,
+  open() { if (this.p) return this.p; this.p = new Promise(res => { try { const r = indexedDB.open('funkel-snd', 1); r.onupgradeneeded = () => r.result.createObjectStore('s'); r.onsuccess = () => res(r.result); r.onerror = () => res(null); } catch (e) { res(null); } }); return this.p; },
+  async tx(mode, fn) { const db = await this.open(); if (!db) return null; return new Promise(res => { try { const t = db.transaction('s', mode), st = t.objectStore('s'), rq = fn(st); t.oncomplete = () => res(rq && 'result' in rq ? rq.result : true); t.onerror = () => res(null); } catch (e) { res(null); } }); },
+  put(k, v) { return this.tx('readwrite', st => st.put(v, k)); },
+  get(k) { return this.tx('readonly', st => st.get(k)); },
+  del(k) { return this.tx('readwrite', st => st.delete(k)); },
+  clear() { return this.tx('readwrite', st => st.clear()); }
+};
+const ownBufs = {};
+async function ownSound(k) {
+  if (ownBufs[k]) return ownBufs[k]; if (!AE.ctx) return null;
+  const ab = await SndDB.get(k); if (!ab) return null;
+  try { ownBufs[k] = await AE.ctx.decodeAudioData(ab.slice(0)); } catch (e) { return null; }
+  return ownBufs[k];
+}
+function playOwnSound(k) {
+  unlockAudio();
+  return ownSound(k).then(b => { if (!b || !AE.ctx) return; try { const s = AE.ctx.createBufferSource(), g = AE.ctx.createGain(); s.buffer = b; g.gain.value = 0.9; s.connect(g); g.connect(AE.sfx || AE.master); s.start(); s.stop(AE.ctx.currentTime + Math.min(3, b.duration)); } catch (e) { } });
+}
+/* the sound of a feeling (short, never music) */
+function feelSnd(kind, bot, feelId) {
+  const a = AE; if (!a.ctx || !kind || kind === 'none') return;
+  if (kind === 'own') { playOwnSound('feel:' + feelId); return; }
+  if (kind === 'chatter') a.play('chatter', { p: BOT_PITCH[bot] || 900 });
+  else if (kind === 'lachen') for (let i = 0; i < 5; i++) a.tone({ f: 980 - i * 70, f2: 760 - i * 60, t: i * 0.11, dur: 0.08, vol: 0.12, type: 'triangle', glide: 0.07 });
+  else if (kind === 'grr') { for (let i = 0; i < 6; i++) a.tone({ f: 95 + (i % 2) * 12, t: i * 0.065, dur: 0.08, vol: 0.13, type: 'sawtooth' }); a.nz({ dur: 0.42, vol: 0.06, type: 'lowpass', f: 320 }); }
+  else if (kind === 'oh') a.tone({ f: 540, f2: 250, dur: 0.6, vol: 0.13, type: 'triangle', glide: 0.58 });
+  else if (kind === 'wow') { a.tone({ f: 300, f2: 950, dur: 0.42, vol: 0.12, type: 'triangle', glide: 0.38 }); a.tone({ f: 600, f2: 1300, t: 0.08, dur: 0.36, vol: 0.05, type: 'sine', glide: 0.3 }); }
+  else if (kind === 'klatschen') for (let i = 0; i < 4; i++) a.nz({ t: i * 0.17, dur: 0.05, vol: 0.22, type: 'highpass', f: 1400 });
+  else if (kind === 'plopp') SFX.pop(a);
+  else if (kind === 'boing') a.play('boing');
+  else if (kind === 'glitzer') SFX.sparkle(a);
+  else if (kind === 'zisch') a.nz({ dur: 0.3, vol: 0.07, type: 'highpass', f: 3200, f2: 8000 });
+}
+/* ---------- the settings page ---------- */
+function botSettings(box) {
+  const C = botCfg();
+  const sec = (t, ...kids) => box.append(h('p', { class: 'hub-sub' }, t), ...kids);
+  const grid = (items, cur, pick, cls) => { const g = optGrid(items, cur, pick); if (cls) g.classList.add(cls); return g; };
+  const gi = S.botTalk === 0 ? 0 : Math.max(1, BOT_GAPS.findIndex(x => x[0] === C.gap));
+  sec('💬 Wie oft redet jemand?', grid(BOT_GAPS.map(g => [g[1], g[2]]), gi < 0 ? 4 : gi, i => { if (i === 0) S.botTalk = 0; else { S.botTalk = 2; C.gap = BOT_GAPS[i][0]; } Store.save(); }, 'five'));
+  sec('🎭 Was zeigen sie?', grid([['✨', 'Nur Emoji'], ['✨💬', 'Emoji + Wörter'], ['💬', 'Nur Wörter']], ['emoji', 'both', 'words'].indexOf(C.show), i => { C.show = ['emoji', 'both', 'words'][i]; Store.save(); demo(); }));
+  sec('📏 Wie viel sagen sie?', grid([['•', 'Kurz'], ['••', 'Mittel'], ['•••', 'Alles']], C.len - 1, i => { C.len = i + 1; Store.save(); }));
+  const prev = h('div', { class: 'bc-prev' });
+  const paintPrev = () => { const F = botFeel('happy'), b = QUIZ_BOTS[0]; prev.innerHTML = ''; prev.append(h('div', { class: 'spk bc-spk' }, h('span', { class: 'rc-av' }, photoEl(b.img, b.emo, 'rc-img')), F.pic ? h('img', { class: 'spk-pic', src: F.pic, alt: '' }) : h('span', { class: 'spk-e' }, F.e), h('span', { class: 'spk-t' }, h('b', {}, b.name), h('span', {}, 'Juhu, richtig!'))), h('span', { class: 'bc-emo-demo' }, F.e)); };
+  sec('🔠 Größe', emoSlider({ min: 0.8, max: 1.5, step: 0.05, val: C.size, label: '💬', a: 'A', b: 'A', onInput: v => { C.size = Math.round(v * 100) / 100; botSizesApply(); Store.save(); } }),
+    emoSlider({ min: 0.7, max: 2, step: 0.05, val: C.emo, label: '✨', a: '·', b: '✺', onInput: v => { C.emo = Math.round(v * 100) / 100; botSizesApply(); Store.save(); } }), prev);
+  paintPrev();
+  sec('🎚️ Sprechtempo', emoSlider({ min: 0.6, max: 1.5, step: 0.05, val: C.rate, label: '', a: '🍃', b: '⚡', onInput: v => { C.rate = Math.round(v * 100) / 100; Store.save(); }, onDone: () => demo() }),
+    h('button', { class: 'btn soft small', type: 'button', onclick: () => demo() }, h('span', { html: ICON.speaker }), 'Probe hören'));
+  /* feelings: emoji or own photo, a sound or an own recording */
+  const feelBox = h('div', { class: 'bc-feels' });
+  let openFeel = null;
+  const paintFeels = () => {
+    feelBox.innerHTML = '';
+    BOT_FEELS.forEach(([id, nm]) => {
+      const F = botFeel(id), o = C.feel[id] || {};
+      const set = (k, v) => { C.feel[id] = Object.assign({}, C.feel[id] || {}, { [k]: v }); if (v == null) delete C.feel[id][k]; Store.save(); };
+      const row = h('div', { class: 'bc-feel' + (openFeel === id ? ' open' : '') });
+      const vis = h('button', { class: 'bc-fe', type: 'button', 'aria-label': nm }, F.pic ? h('img', { src: F.pic, alt: '' }) : F.e);
+      const sndName = F.snd === 'own' ? '📁 Eigener' : (FEEL_SND.find(s => s[0] === F.snd) || FEEL_SND[0])[1];
+      const test = h('button', { class: 'btn soft small', type: 'button', onclick: () => { unlockAudio(); feelSnd(F.snd, 'muffin', id); emojiBurst(vis, [F.e], 4); } }, '🔊');
+      vis.onclick = () => { AE.play('tap'); openFeel = openFeel === id ? null : id; paintFeels(); };
+      row.append(h('div', { class: 'bc-fhead' }, vis, h('span', { class: 'bc-fn' }, h('b', {}, nm), h('small', {}, '🔊 ' + sndName)), test));
+      if (openFeel === id) {
+        const pic = h('input', { type: 'file', accept: 'image/*', hidden: true }), aud = h('input', { type: 'file', accept: 'audio/*', hidden: true });
+        pic.onchange = () => { const f = pic.files && pic.files[0]; if (!f) return; shrinkPhoto(f, url => { if (!url) { toast('Das Bild geht leider nicht.'); return; } set('pic', url); paintFeels(); paintPrev(); }); };
+        aud.onchange = async () => { const f = aud.files && aud.files[0]; if (!f) return; if (f.size > 1500000) { toast('Zu lang – höchstens 1,5 MB'); return; } const ab = await f.arrayBuffer(); delete ownBufs['feel:' + id]; const ok = await SndDB.put('feel:' + id, ab); if (!ok) { toast('Speichern geht hier leider nicht.'); return; } set('snd', 'own'); paintFeels(); feelSnd('own', '', id); };
+        const emos = h('div', { class: 'bc-emos' }, ...FEEL_EMO.map(e => h('button', { class: 'bc-em' + (!F.pic && F.e === e ? ' on' : ''), type: 'button', onclick: () => { set('pic', null); set('e', e); AE.play('pop'); paintFeels(); paintPrev(); } }, e)),
+          h('button', { class: 'bc-em up' + (F.pic ? ' on' : ''), type: 'button', onclick: () => pic.click() }, F.pic ? h('img', { src: F.pic, alt: '' }) : '📷'), pic);
+        const snds = h('div', { class: 'bc-snds' }, ...FEEL_SND.map(([k, n]) => h('button', { class: 'bc-sn' + (F.snd === k ? ' on' : ''), type: 'button', onclick: () => { unlockAudio(); set('snd', k); feelSnd(k, 'muffin', id); paintFeels(); } }, n)),
+          h('button', { class: 'bc-sn' + (F.snd === 'own' ? ' on' : ''), type: 'button', onclick: () => aud.click() }, '📁 Eigener Ton'), aud);
+        const reset = (o.e || o.pic || o.snd) ? h('button', { class: 'btn soft small', type: 'button', onclick: () => { delete C.feel[id]; SndDB.del('feel:' + id); delete ownBufs['feel:' + id]; Store.save(); AE.play('tap'); paintFeels(); paintPrev(); } }, '↩️ Wie am Anfang') : null;
+        row.append(emos, snds, reset);
+      }
+      feelBox.appendChild(row);
+    });
+  };
+  paintFeels();
+  sec('🎭 Gefühle: Emoji und Ton', feelBox);
+  function demo() { const b = pick(playBots(1)), l = pick(BOT_LINES[b.id].ok); Speech.stop(); BotTalk.clear(); BotTalk.lastEnd = 0; BotTalk.busyAt = 0; BotTalk.add(b.id, l[0], { ar: l[1], force: true, cat: 'ok', test: true }); }
+  return box;
+}
+/* per friend: speed, a device voice for own sentences, which lines it may say, own sentences */
+function botLinesPanel(id, repaint) {
+  const B = botOpt(id), wrap = h('div', { class: 'bc-lines' });
+  const say = (t, custom) => { Speech.stop(); BotTalk.clear(); BotTalk.lastEnd = 0; BotTalk.busyAt = 0; BotTalk.add(id, t, { force: true, test: true, custom, ar: custom ? '' : undefined }); };
+  const rate = h('b', { class: 'tempo-val' }, '×' + (B.rate || 1).toFixed(2));
+  wrap.append(h('p', { class: 'hub-sub' }, '🎚️ Tempo'), emoSlider({ min: 0.6, max: 1.6, step: 0.05, val: B.rate || 1, label: '', a: '🍃', b: '⚡', onInput: v => { B.rate = Math.round(v * 100) / 100; rate.textContent = '×' + B.rate.toFixed(2); Store.save(); }, onDone: () => friendSample(id) }), rate);
+  /* own sentences */
+  const inp = h('input', { type: 'text', class: 'bc-in', placeholder: 'Eigener Satz …', maxlength: '120' });
+  const add = h('button', { class: 'btn gold small', type: 'button' }, '➕');
+  const tryB = h('button', { class: 'btn soft small', type: 'button', onclick: () => { const t = inp.value.trim(); if (t) say(t, true); } }, '🔊');
+  add.onclick = () => { const t = inp.value.trim(); if (!t) return; if (!B.mine.includes(t)) B.mine.push(t); Store.save(); AE.play('unlock'); repaint(); };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') add.click(); });
+  const mine = h('div', { class: 'bc-mine' }, ...B.mine.map((t, k) => h('div', { class: 'bc-li own' }, h('span', {}, t),
+    h('button', { class: 'btn soft small', type: 'button', onclick: () => say(t, true) }, '🔊'),
+    h('button', { class: 'btn soft small', type: 'button', 'aria-label': 'Löschen', onclick: () => { B.mine.splice(k, 1); if (!B.mine.length) B.only = false; Store.save(); AE.play('tap'); repaint(); } }, '🗑️'))));
+  wrap.append(h('p', { class: 'hub-sub' }, '✏️ Eigene Sätze'), h('div', { class: 'bc-add' }, inp, tryB, add), mine);
+  if (B.mine.length) wrap.append(toggleRow('Nur meine Sätze', !!B.only, v => { B.only = v; Store.save(); }));
+  /* a device voice for own sentences (recorded voices only know the built-in lines) */
+  const vs = (Speech.voices || []).filter(v => /^(de|ar)/i.test(v.lang || ''));
+  if (vs.length && B.mine.length) {
+    const sel = h('select', { class: 'bc-sel' }, h('option', { value: '' }, '🎙️ Automatisch'), ...vs.map(v => h('option', { value: v.voiceURI, selected: B.dev === v.voiceURI }, v.name + ' (' + v.lang + ')')));
+    sel.onchange = () => { B.dev = sel.value || undefined; Store.save(); if (B.mine.length) say(B.mine[0], true); };
+    wrap.append(h('p', { class: 'hub-sub' }, '🎙️ Stimme für eigene Sätze'), sel);
+  }
+  /* the built-in lines: tap to switch one off */
+  const cats = BOT_LINES[id] || {};
+  const list = h('div', { class: 'bc-list' });
+  Object.keys(cats).forEach(cat => {
+    list.appendChild(h('div', { class: 'bc-cat' }, (BOT_MOOD[cat] || ['💬'])[0]));
+    cats[cat].forEach(([de, ar]) => {
+      const off = B.off.includes(de);
+      const li = h('div', { class: 'bc-li' + (off ? ' off' : '') }, h('span', {}, de),
+        h('button', { class: 'btn soft small', type: 'button', onclick: () => { Speech.stop(); Speaker.show(id, de); Nur.say([BOT(id, de), BOT(id + '_ar', ar)], { keep: false, noBubble: true, noAr: true, botLine: true }).then(() => Speaker.hide()); } }, '🔊'));
+      const sw = h('button', { class: 'toggle mini', role: 'switch', 'aria-checked': String(!off), 'aria-label': 'an' }, h('span', { class: 'sw' }));
+      sw.onclick = () => { const i = B.off.indexOf(de); if (i >= 0) B.off.splice(i, 1); else B.off.push(de); Store.save(); AE.play('click'); sw.setAttribute('aria-checked', String(i >= 0)); li.classList.toggle('off', i < 0); };
+      li.appendChild(sw); list.appendChild(li);
+    });
+  });
+  wrap.append(h('p', { class: 'hub-sub' }, '💬 Sätze an / aus'), list);
+  const hasAny = B.mine.length || B.off.length || B.rate || B.dev || B.only;
+  if (hasAny) wrap.append(h('button', { class: 'btn soft', type: 'button', onclick: () => { delete botCfg().bots[id]; Store.save(); AE.play('tap'); repaint(); } }, '↩️ ' + 'Wie am Anfang'));
+  return wrap;
+}
+function botResetAll(done) {
+  delete S.botCfg; S.botTalk = 2; delete S.botVoice; Store.save(); SndDB.clear(); for (const k in ownBufs) delete ownBufs[k]; botSizesApply(); if (done) done();
+}
+
 /* ======================= Release 1: settings, kingdom economy, raids, film ======================= */
 Object.assign(ICON, {
   gear: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.4h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>',
@@ -6281,6 +6458,7 @@ function friendsPics() {
       const on = S.botOn[b.id] !== false;
       const picG = h('div', { class: 'fr-grid', hidden: !(openId === b.id && openKind === 'pic') });
       const voiceG = h('div', { class: 'fr-voices', hidden: !(openId === b.id && openKind === 'voice') });
+      const linesG = openId === b.id && openKind === 'lines' ? botLinesPanel(b.id, () => paint(b.id, 'lines')) : null;
       const setPic = v => { if (v) S.botPic[b.id] = v; else delete S.botPic[b.id]; Store.save(); AE.play('pop'); paint(b.id, 'pic'); friendSample(b.id); };
       const file = h('input', { type: 'file', accept: 'image/*', hidden: true });
       file.onchange = () => { const f = file.files && file.files[0]; if (!f) return; shrinkPhoto(f, url => { if (!url) { toast('Das Bild geht leider nicht.'); return; } S.botUp[b.id] = url; setPic('up'); }); };
@@ -6299,11 +6477,19 @@ function friendsPics() {
         h('div', { class: 'fr-btns' },
           h('button', { class: 'btn soft small', type: 'button', onclick: () => friendSample(b.id) }, '🔊'),
           h('button', { class: 'btn small', type: 'button', onclick: () => { AE.play('tap'); const o = picG.hidden; paint(o ? b.id : null, 'pic'); } }, '🖼️ Bild'),
-          h('button', { class: 'btn small', type: 'button', onclick: () => { AE.play('tap'); const o = voiceG.hidden; paint(o ? b.id : null, 'voice'); } }, '🎙️ Stimme')));
-      wrap.append(row, voiceG, picG);
+          h('button', { class: 'btn small', type: 'button', onclick: () => { AE.play('tap'); const o = voiceG.hidden; paint(o ? b.id : null, 'voice'); } }, '🎙️ Stimme'),
+          h('button', { class: 'btn small', type: 'button', onclick: () => { AE.play('tap'); paint(linesG ? null : b.id, 'lines'); } }, '💬 Sätze')));
+      wrap.append(row, voiceG, picG); if (linesG) wrap.appendChild(linesG);
     });
   };
   paint(); return wrap;
+}
+/* back to how everything was at the start: tap twice (no pop-up dialogs here) */
+function botResetBtn() {
+  const b = h('button', { class: 'btn soft bc-reset', type: 'button' }, '↩️ Alles wie am Anfang');
+  b.onclick = () => { if (!b.dataset.ask) { b.dataset.ask = '1'; b.textContent = '↩️ Sicher? Nochmal tippen'; AE.play('tap'); setTimeout(() => { if (b.isConnected) { delete b.dataset.ask; b.textContent = '↩️ Alles wie am Anfang'; } }, 3000); return; }
+    botResetAll(() => { AE.play('unlock'); toast('↩️ Freunde wie am Anfang'); Sheet.close(); setTimeout(() => openSettings('freunde'), 250); }); };
+  return b;
 }
 function openSettings(startAt) {
   const R = Raid.st();
@@ -6334,14 +6520,12 @@ function openSettings(startAt) {
       } },
     { id: 'freunde', emo: '💬', name: 'Freunde', col: '#ff7aa8',
       say: () => [D('Wie viel sollen die Freunde reden?'), ...arIf('قديش لازم يحكوا الأصحاب؟')],
-      render: box => box.append(
-        h('p', { class: 'hub-sub' }, '💬 Wie viel reden die Freunde?'),
-        optGrid([['🔇', 'Aus'], ['💬', 'Wenig'], ['💬💬', 'Viel']], S.botTalk == null ? 2 : S.botTalk, i => { S.botTalk = i; Store.save(); }),
+      render: box => { botSettings(box); box.append(
         h('p', { class: 'hub-sub' }, '🏁 Spielen sie mit?'),
         optGrid([['✅', 'Ja'], ['⛔', 'Nein']], S.botsGames === false ? 1 : 0, i => { S.botsGames = i === 0; Store.save(); }),
         h('p', { class: 'hub-sub' }, '🗣️ Welche Sprache sprechen die Freunde?'),
         optGrid(LANG_OPTS(), LANG_MODES.indexOf(langMode('bots')), i => { setLang('bots', LANG_MODES[i]); friendSample(pick(playBots(1)).id); }),
-        h('p', { class: 'hub-sub' }, '🧁 Deine sechs Freunde'), friendsPics()) },
+        h('p', { class: 'hub-sub' }, '🧁 Deine sechs Freunde'), friendsPics(), botResetBtn()); } },
     { id: 'angriffe', emo: '⚔️', name: 'Angriffe', col: '#e0607e',
       say: () => [D('Wann und wie stark greift der Erfinder an?'), ...arIf('إيمتى وقديش قوي بيهجم المخترع؟')],
       render: box => {

@@ -2033,15 +2033,15 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 @media (max-width:600px){.gt-tick{font-size:14px}.gt.many .gp-av{width:36px;height:36px}.gt.many .gp.me .gp-av{width:42px;height:42px}.gt.many .gp-name{max-width:58px}}
 .gt .gp-bub{white-space:normal;width:max-content;max-width:190px;line-height:1.25}
 /* Blasen together */
-.bt-legend{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:2px 0 6px}
-.bt-chip{display:flex;align-items:center;gap:6px;padding:3px 12px 3px 3px;border-radius:99px;background:var(--glass-2,#fff);border:3px solid var(--c);font:700 22px var(--font-read)}
-.bt-chip.me{box-shadow:0 0 0 3px rgba(255,210,90,.7),0 4px 12px rgba(0,0,0,.15);transform:scale(1.08)}
-.bt-chip .tp-av.xs,.bt-own .tp-av.xs,.mem-own .tp-av.xs{width:30px;height:30px;padding:2px}
-.bt-chip .tp-av.xs .tp-ini,.bt-own .tp-ini{font-size:14px}
+
+
+
+.bt-own .tp-av.xs,.mem-own .tp-av.xs{width:30px;height:30px;padding:2px}
+
 .bub.own .face{box-shadow:0 0 0 5px var(--oc),0 0 22px var(--oc)!important;filter:saturate(1.2)}
 .bub.own b{color:var(--oc);text-shadow:0 0 6px #fff,0 0 2px #fff}
 .bt-own{position:absolute;right:-6px;top:-6px;z-index:2}
-.bt-done{position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:5;background:rgba(255,255,255,.95);color:#2a1a08;font-weight:800;font-size:18px;padding:8px 18px;border-radius:99px;box-shadow:0 6px 18px rgba(0,0,0,.25);white-space:nowrap}
+
 
 /* Blasen together v2: balloons */
 .bt-sky{background:linear-gradient(180deg,#bfe6ff 0%,#e6f6ff 60%,#fff6fb 100%);border:2px solid rgba(255,255,255,.8)}
@@ -2057,9 +2057,9 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 .bln.wob{animation:shake .4s}
 .bt-timer{display:flex;align-items:center;gap:2px;padding:6px 14px;border-radius:99px;background:#fff;font-weight:800;font-size:22px;color:#21324a;box-shadow:0 3px 10px rgba(0,0,0,.12);font-variant-numeric:tabular-nums}
 .bt-timer.low{background:#ffe1dc;color:#c0392b;animation:pulse 1s infinite}
-.bt-chip .bt-n{font-style:normal;font:800 15px 'Andika',sans-serif;background:var(--c);color:#fff;border-radius:99px;padding:0 8px;margin-left:2px;min-width:22px;text-align:center}
-.bt-chip .bt-n.up{animation:pop .4s}
-.bt-cd{z-index:6}
+
+
+
 .bln.own{opacity:.85;transition:opacity .8s .4s}
 /* Ballon-Jagd v3: launchers, darts, treasure, end card */
 .bt .bub-head{gap:10px}
@@ -2163,8 +2163,8 @@ body.bt-on .spk{top:auto;bottom:calc(62px + env(safe-area-inset-bottom,0px))}
 /* Ballon-Jagd: the whole screen is the field; letter as a big watermark, controls in a slim bar inside */
 .bt .bub-field{position:relative}
 .bt-wm{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;z-index:0}
-.bt-wm .crys{all:unset;font:800 min(42vh,52vw)/1 var(--font-read);color:rgba(255,255,255,.55);text-shadow:0 0 30px rgba(120,170,230,.35);-webkit-text-stroke:3px rgba(110,160,220,.25);letter-spacing:-.04em}
-.bt-wm .crys.team{font-size:min(30vh,36vw)}
+
+
 .bj-hud{position:absolute;left:8px;right:8px;bottom:8px;z-index:6;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border-radius:18px;background:rgba(255,255,255,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 4px 14px rgba(0,0,0,.12)}
 .bj-hud .rbtn{width:40px;height:40px}
 .bj-hud .bt-timer{box-shadow:none;background:#fff}
@@ -2181,6 +2181,12 @@ body.bt-on .spk{top:auto;bottom:calc(62px + env(safe-area-inset-bottom,0px))}
 .bt .bt-wm .crys.team{font-size:min(28vh,34vw)!important}
 body.bt-on .spk{top:calc(180px + env(safe-area-inset-top,0px));bottom:auto}
 .bt .tog-strip{bottom:calc(118px + env(safe-area-inset-bottom,0px))!important}
+/* Ballon-Jagd: cheap to draw (phones): no blur behind the bar, no animated filters, no drop-shadow filters on moving parts */
+.bj-hud{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:rgba(255,255,255,.86)!important}
+.bt-gun{filter:none!important}
+.bln.gold .bb{animation:none!important}
+.bln.gold.mine .bb{transform:scale(1.06)}
+.bln .str{animation:none!important;transform:rotate(4deg)}
 
 </style>
 <svg id="defs" width="0" height="0" aria-hidden="true"></svg>
@@ -2196,6 +2202,6 @@ body.bt-on .spk{top:calc(180px + env(safe-area-inset-top,0px));bottom:auto}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>window.FUNKEL_SITE = 1;</script>
-<script src="app.js?v=1340803"></script>
+<script src="app.js?v=1342121"></script>
 </body>
 </html>

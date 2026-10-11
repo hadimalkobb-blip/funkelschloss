@@ -2119,6 +2119,26 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 .bt-tick{top:96px}
 @media (max-width:600px){.bt-mission{font-size:12.5px;max-width:100%}.bt-l .tp-av.xs{width:30px;height:30px}.bt-lt{font-size:15px}}
 .bt-l:last-child .gp-bub{left:auto;right:calc(50% + 20px);border-radius:14px 14px 4px 14px}
+/* Ballon-Jagd v4: prettier sky, real crossbows, stages, frenzy */
+.bt-sky{background:radial-gradient(circle at 85% 18%,rgba(255,244,190,.95) 0 7%,rgba(255,236,160,.35) 13%,transparent 26%),radial-gradient(ellipse 30% 9% at 22% 40%,rgba(255,255,255,.9),transparent 70%),radial-gradient(ellipse 24% 7% at 70% 62%,rgba(255,255,255,.75),transparent 70%),linear-gradient(180deg,#7ccaf5 0%,#b6e3fb 45%,#e9f7ff 80%,#fff3f8 100%)}
+.bt-sky.frenzy{box-shadow:inset 0 0 0 4px #ff8a00,inset 0 0 40px rgba(255,120,0,.35)}
+.bln .bb{background:radial-gradient(ellipse 22% 16% at 32% 24%,rgba(255,255,255,.95),rgba(255,255,255,0) 100%),radial-gradient(ellipse 60% 20% at 50% 92%,rgba(255,255,255,.28),transparent 70%),radial-gradient(circle at 42% 38%,color-mix(in srgb,var(--b1) 70%,#fff) 0%,var(--b1) 42%,color-mix(in srgb,var(--b1) 70%,#2a0a30) 100%)}
+.bt-band{height:96px}
+.bt-gun{width:40px;height:50px;margin-top:0;transform-origin:50% 40%;filter:drop-shadow(0 3px 3px rgba(0,0,0,.3))}
+.bt-gun svg{width:100%;height:100%;display:block}
+.bt-gun i{display:none}
+.bt-gun.fire svg{animation:gunkick .2s}
+.crys.team{font-size:.8em;letter-spacing:-.02em}
+.bt-stage{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);z-index:9;background:#fff;border-radius:22px;padding:14px 22px;text-align:center;box-shadow:0 18px 40px rgba(0,0,0,.3);display:flex;flex-direction:column;gap:4px;animation:bubin .4s cubic-bezier(.3,1.6,.5,1)}
+.bt-stage b{font:800 24px var(--font-show);color:#8f5bff}
+.bt-stage i{font:800 36px var(--font-read);color:#ff3d6e;font-style:normal}
+.bt-tick{top:104px}
+.bt-gun{width:50px;height:62px;transform:rotate(var(--a,180deg))}
+.bt-band{height:104px}
+.bt-tick{top:112px}
+.target-badge .crys.team{font-size:clamp(34px,6vw,54px)}
+.bln.team .bb b{font-size:calc(var(--sz,84px)*.42)}
+.bln.sm.team .bb b{font-size:calc(var(--sz,84px)*.72*.42)}
 
 </style>
 <svg id="defs" width="0" height="0" aria-hidden="true"></svg>
@@ -2134,6 +2154,6 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>window.FUNKEL_SITE = 1;</script>
-<script src="app.js?v=1330681"></script>
+<script src="app.js?v=1336339"></script>
 </body>
 </html>

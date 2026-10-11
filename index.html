@@ -2160,6 +2160,27 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 .bt-podi .tp-av>*{width:100%;height:100%}
 @media (max-width:600px){.bt-meter{font-size:13px;gap:6px}.bt-stars i{font-size:16px;margin:0}.bt .bt-mission{max-width:46vw}}
 body.bt-on .spk{top:auto;bottom:calc(62px + env(safe-area-inset-bottom,0px))}
+/* Ballon-Jagd: the whole screen is the field; letter as a big watermark, controls in a slim bar inside */
+.bt .bub-field{position:relative}
+.bt-wm{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;z-index:0}
+.bt-wm .crys{all:unset;font:800 min(42vh,52vw)/1 var(--font-read);color:rgba(255,255,255,.55);text-shadow:0 0 30px rgba(120,170,230,.35);-webkit-text-stroke:3px rgba(110,160,220,.25);letter-spacing:-.04em}
+.bt-wm .crys.team{font-size:min(30vh,36vw)}
+.bj-hud{position:absolute;left:8px;right:8px;bottom:8px;z-index:6;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border-radius:18px;background:rgba(255,255,255,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 4px 14px rgba(0,0,0,.12)}
+.bj-hud .rbtn{width:40px;height:40px}
+.bj-hud .bt-timer{box-shadow:none;background:#fff}
+.bj-hud .bt-meter{box-shadow:none;background:none;padding:0;margin:0;flex:1 1 auto;min-width:0;justify-content:flex-start}
+.bj-hud .bt-mission{box-shadow:none;background:#f3eeff;max-width:none;flex:1 1 100%;text-align:center;font-size:12.5px;padding:3px 8px}
+.bj-hud .bt-mission.done{background:#d9ffe6}
+.bt .tog-strip{bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+.bln.word{width:calc(var(--sz,84px)*1.5)}
+.bln.word .bb{border-radius:46%/52%}
+.bln.word .bb b{font-size:calc(var(--sz,84px)*.3);letter-spacing:-.01em}
+.bln.word .str{left:50%}
+@media (min-width:700px){.bj-hud .bt-mission{flex:0 1 auto;max-width:34%}}
+.bt .bt-wm .crys{all:unset;display:block;font:800 min(40vh,50vw)/1 var(--font-read)!important;color:rgba(255,255,255,.6)!important;text-shadow:0 0 34px rgba(90,150,220,.35),0 4px 0 rgba(90,150,220,.18);letter-spacing:-.04em;background:none!important;box-shadow:none!important;border:0!important;clip-path:none!important;min-width:0!important;height:auto!important;padding:0!important}
+.bt .bt-wm .crys.team{font-size:min(28vh,34vw)!important}
+body.bt-on .spk{top:calc(180px + env(safe-area-inset-top,0px));bottom:auto}
+.bt .tog-strip{bottom:calc(118px + env(safe-area-inset-bottom,0px))!important}
 
 </style>
 <svg id="defs" width="0" height="0" aria-hidden="true"></svg>
@@ -2175,6 +2196,6 @@ body.bt-on .spk{top:auto;bottom:calc(62px + env(safe-area-inset-bottom,0px))}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>window.FUNKEL_SITE = 1;</script>
-<script src="app.js?v=1337026"></script>
+<script src="app.js?v=1340268"></script>
 </body>
 </html>

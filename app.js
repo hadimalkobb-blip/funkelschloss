@@ -10295,11 +10295,13 @@ function blasenTog(stage, ctx) {
   const band = h('div', { class: 'bt-band' });
   const meter = h('div', { class: 'bt-meter' });
   const tick = h('div', { class: 'gt-tick bt-tick', hidden: true });
-  const cdEl = h('div', { class: 'bt-intro' });
+  const cdEl = h('div', { class: 'bt-intro', hidden: true });  /* hidden until the intro: an empty overlay would swallow every tap */
   const frzEl = h('div', { class: 'bt-frz', hidden: true }, '❄️');
   field.append(band, tick, frzEl, cdEl);
   const wm = h('div', { class: 'bt-wm target-badge' }, badge);
-  const hud = h('div', { class: 'bj-hud' }, sayBtn(() => announce(), 'Nochmal hören'), timerEl, meter, missEl);
+  const shopB = h('button', { class: 'rbtn bj-shopb', type: 'button', 'aria-label': 'Menü' }, '🎨');
+  shopB.onclick = e => { e.stopPropagation(); unlockAudio(); AE.play('tap'); openMenu(); };
+  const hud = h('div', { class: 'bj-hud' }, sayBtn(() => announce(), 'Nochmal hören'), shopB, timerEl, meter, missEl);
   /* all balloons live on ONE canvas (drawn from cached sprites) — dozens of styled DOM elements were too heavy for phones */
   const cv = h('canvas', { class: 'bj-cv' }), cx = cv.getContext('2d'); let dpr = 1;
   field.prepend(wm); wm.after(cv); field.append(hud);
@@ -10737,7 +10739,7 @@ function blasenTog(stage, ctx) {
     close.onclick = () => { AE.play('tap'); closeMenu(); };
     menuEl.addEventListener('pointerdown', e => { if (e.target === menuEl) closeMenu(); });
     const paint = () => { goldTxt(goldEl); if (onGold) onGold(); paintTabs(); paintGrid(); };
-    function paintTabs() { tabs.innerHTML = ''; BJ_TABS.forEach(([k, ic, nm]) => { const b = h('button', { class: 'bj-tab' + (k === mcat ? ' on' : ''), type: 'button' }, h('span', {}, ic), h('small', {}, nm)); b.onclick = () => { mcat = k; AE.play('tap'); paint(); }; tabs.appendChild(b); }); }
+    function paintTabs() { tabs.innerHTML = ''; BJ_TABS.filter(t => t[0] !== 'set' || (SOLO && phase === 'lobby')).forEach(([k, ic, nm]) => { const b = h('button', { class: 'bj-tab' + (k === mcat ? ' on' : ''), type: 'button' }, h('span', {}, ic), h('small', {}, nm)); b.onclick = () => { mcat = k; AE.play('tap'); paint(); }; tabs.appendChild(b); }); }
     const seg = (lab, vals, key) => { const bs = h('div', { class: 'ar-seg' }); vals.forEach(([v, t]) => { const b = h('button', { class: 'ar-segb' + (J[key] === v ? ' on' : ''), type: 'button' }, t); b.onclick = () => { J[key] = v; Store.save(); AE.play('tap'); paintGrid(); }; bs.appendChild(b); }); return h('div', { class: 'bj-set' }, h('b', {}, lab), bs); };
     function paintGrid() {
       grid.innerHTML = '';

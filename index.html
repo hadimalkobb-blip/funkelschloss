@@ -2043,6 +2043,25 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 .bt-own{position:absolute;right:-6px;top:-6px;z-index:2}
 .bt-done{position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:5;background:rgba(255,255,255,.95);color:#2a1a08;font-weight:800;font-size:18px;padding:8px 18px;border-radius:99px;box-shadow:0 6px 18px rgba(0,0,0,.25);white-space:nowrap}
 
+/* Blasen together v2: balloons */
+.bt-sky{background:linear-gradient(180deg,#bfe6ff 0%,#e6f6ff 60%,#fff6fb 100%);border:2px solid rgba(255,255,255,.8)}
+.bt-sky.frz{animation:shake .35s}
+.bln{position:absolute;left:0;top:0;width:var(--sz,84px);height:calc(var(--sz,84px)*1.55);will-change:transform;touch-action:none;cursor:pointer;--b2:color-mix(in srgb,var(--b1) 62%,#3a1030)}
+.bln .bb{position:absolute;left:0;right:0;top:0;height:calc(var(--sz,84px)*1.12);border-radius:50% 50% 47% 47%/56% 56% 44% 44%;background:radial-gradient(circle at 30% 24%,rgba(255,255,255,.9) 0 6%,rgba(255,255,255,.35) 11%,rgba(255,255,255,0) 26%),radial-gradient(circle at 46% 42%,color-mix(in srgb,var(--b1) 78%,#fff) 0%,var(--b1) 45%,var(--b2) 100%);box-shadow:inset -8px -12px 20px rgba(60,0,40,.18),0 8px 16px rgba(40,30,80,.16);display:grid;place-items:center}
+.bln .bb::after{content:"";position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:11px solid var(--b2)}
+.bln .bb b{font:700 calc(var(--sz,84px)*.56)/1 var(--font-read);color:rgba(255,255,255,.96);text-shadow:0 2px 0 color-mix(in srgb,var(--b2) 70%,transparent),0 0 10px rgba(255,255,255,.35);transform:translateY(-4%) scaleX(.94);letter-spacing:-.02em}
+.bln .str{position:absolute;left:50%;top:calc(var(--sz,84px)*1.16);width:2px;height:calc(var(--sz,84px)*.4);background:linear-gradient(var(--b2),rgba(80,60,90,.25));transform-origin:top;animation:strsw 1.6s ease-in-out infinite alternate}
+@keyframes strsw{from{transform:rotate(-9deg)}to{transform:rotate(9deg)}}
+.bln.own .bb{box-shadow:inset -8px -12px 20px rgba(60,0,40,.18),0 0 0 4px #fff,0 0 22px var(--b1)}
+.bln.own .bt-own{position:absolute;right:auto;left:50%;top:calc(var(--sz,84px)*1.42);transform:translateX(-50%);z-index:2}
+.bln.wob{animation:shake .4s}
+.bt-timer{display:flex;align-items:center;gap:2px;padding:6px 14px;border-radius:99px;background:#fff;font-weight:800;font-size:22px;color:#21324a;box-shadow:0 3px 10px rgba(0,0,0,.12);font-variant-numeric:tabular-nums}
+.bt-timer.low{background:#ffe1dc;color:#c0392b;animation:pulse 1s infinite}
+.bt-chip .bt-n{font-style:normal;font:800 15px 'Andika',sans-serif;background:var(--c);color:#fff;border-radius:99px;padding:0 8px;margin-left:2px;min-width:22px;text-align:center}
+.bt-chip .bt-n.up{animation:pop .4s}
+.bt-cd{z-index:6}
+.bln.own{opacity:.85;transition:opacity .8s .4s}
+
 </style>
 <svg id="defs" width="0" height="0" aria-hidden="true"></svg>
 <div id="app">
@@ -2057,6 +2076,6 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>window.FUNKEL_SITE = 1;</script>
-<script src="app.js?v=1300442"></script>
+<script src="app.js?v=1302458"></script>
 </body>
 </html>

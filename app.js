@@ -10252,12 +10252,12 @@ function blasenTog(stage, ctx) {
   /* ---- host: spawns bubbles, plays the bots, decides the end ---- */
   let dirty = true, lastPub = 0, pool = [], distract = [], bots = [], t0 = Date.now(), endSent = false, bsq = 0, nextTalk = Date.now() + 8000;
   const speed = [0, 0.1, 0.135, 0.17][d] || 0.12;
+  /* fair: every player who is still hunting gets the same number of free bubbles with her letter; only a few strangers */
   function letterFor() {
-    const active = T.filter((t, i) => !doneOf(i));
-    const visible = l => [...B.values()].some(b => b.l === l && b.o < 0 && b.y > -0.1 && b.y < 0.95);
-    const missing = active.filter(l => !visible(l));
-    if (missing.length && Math.random() < 0.7) return pick(missing);
-    return Math.random() < 0.5 && active.length ? pick(active) : pick(distract.length ? distract : pool);
+    const act = T.map((t, i) => i).filter(i => !doneOf(i));
+    if (!act.length || Math.random() < 0.18) return pick(distract.length ? distract : pool);
+    const cnt = i => [...B.values()].filter(b => b.l === T[i] && b.o < 0 && b.y > -0.15).length;
+    const lo = Math.min(...act.map(cnt)); return T[pick(act.filter(i => cnt(i) === lo))];
   }
   function spawn(initial) {
     const l = letterFor(), id = ++bSeq;
@@ -10267,11 +10267,12 @@ function blasenTog(stage, ctx) {
   const doneOf = i => { const id = pl[i]; if (!id) return true; if (id === myId) return R.done; if (id.startsWith('b:')) { const bo = bots.find(x => x.i === i); return !bo || bo.done; } const pe = Net.peers().find(p => p.id === id); return !pe || !!(pe.pr.tg && pe.pr.tg.done); };
   function hostStart() {
     const rows = togRows().slice(0, 8), ids = rows.map(r => r.id);
-    pool = Brain.letterPool(d).filter(x => x !== 'ß' && LETTERS[x]); if (pool.length < ids.length + 3) pool = uniq([...pool, ...LETTER_ORDER.filter(x => x !== 'ß' && LETTERS[x])]);
+    const simple = x => /^[a-z]$/.test(x) && LETTERS[x];
+    pool = Brain.letterPool(d).filter(simple); if (pool.length < ids.length + 3) pool = uniq([...pool, ...'amlositenrhu'.split('').filter(simple)]);
     const mine = Brain.pickW(pool.map(x => 'L:' + x), 1)[0].slice(2);
     const ts = [mine, ...shuffle(pool.filter(x => x !== mine)).slice(0, ids.length - 1)];
     const me0 = ids.indexOf(myId); if (me0 > 0) { const t = ts[0]; ts[0] = ts[me0]; ts[me0] = t; }
-    distract = uniq([...ts.flatMap(t => (LETTERS[t].conf || []).filter(c => LETTERS[c] && c !== 'ß' && !ts.includes(c))), ...shuffle(pool.filter(x => !ts.includes(x))).slice(0, 3)]);
+    distract = uniq([...(LETTERS[ts[me0 >= 0 ? me0 : 0]].conf || []).filter(c => simple(c) && pool.includes(c) && !ts.includes(c)), ...shuffle(pool.filter(x => !ts.includes(x))).slice(0, 2)]).slice(0, 3);
     setup(ids, ts);
     const lvl = (Net.roster && Net.roster.lvl) || 2;
     bots = rows.map((r, i) => r.bot ? { i, id: r.bot.id, n: 0, st: 0, r: null, rs: 0, done: 0, ms: 0, next: Date.now() + 3000 + rnd(3000), lvl } : null).filter(Boolean);

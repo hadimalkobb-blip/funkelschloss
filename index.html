@@ -2046,21 +2046,12 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 /* Blasen together v2: balloons */
 .bt-sky{background:linear-gradient(180deg,#bfe6ff 0%,#e6f6ff 60%,#fff6fb 100%);border:2px solid rgba(255,255,255,.8)}
 .bt-sky.frz{animation:shake .35s}
-.bln{position:absolute;left:0;top:0;width:var(--sz,84px);height:calc(var(--sz,84px)*1.55);will-change:transform;touch-action:none;cursor:pointer;--b2:color-mix(in srgb,var(--b1) 62%,#3a1030)}
-.bln .bb{position:absolute;left:0;right:0;top:0;height:calc(var(--sz,84px)*1.12);border-radius:50% 50% 47% 47%/56% 56% 44% 44%;background:radial-gradient(circle at 30% 24%,rgba(255,255,255,.9) 0 6%,rgba(255,255,255,.35) 11%,rgba(255,255,255,0) 26%),radial-gradient(circle at 46% 42%,color-mix(in srgb,var(--b1) 78%,#fff) 0%,var(--b1) 45%,var(--b2) 100%);box-shadow:inset -8px -12px 20px rgba(60,0,40,.18),0 8px 16px rgba(40,30,80,.16);display:grid;place-items:center}
-.bln .bb::after{content:"";position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:11px solid var(--b2)}
-.bln .bb b{font:700 calc(var(--sz,84px)*.56)/1 var(--font-read);color:rgba(255,255,255,.96);text-shadow:0 2px 0 color-mix(in srgb,var(--b2) 70%,transparent),0 0 10px rgba(255,255,255,.35);transform:translateY(-4%) scaleX(.94);letter-spacing:-.02em}
-.bln .str{position:absolute;left:50%;top:calc(var(--sz,84px)*1.16);width:2px;height:calc(var(--sz,84px)*.4);background:linear-gradient(var(--b2),rgba(80,60,90,.25));transform-origin:top;animation:strsw 1.6s ease-in-out infinite alternate}
 @keyframes strsw{from{transform:rotate(-9deg)}to{transform:rotate(9deg)}}
-.bln.own .bb{box-shadow:inset -8px -12px 20px rgba(60,0,40,.18),0 0 0 4px #fff,0 0 22px var(--b1)}
-.bln.own .bt-own{position:absolute;right:auto;left:50%;top:calc(var(--sz,84px)*1.42);transform:translateX(-50%);z-index:2}
-.bln.wob{animation:shake .4s}
 .bt-timer{display:flex;align-items:center;gap:2px;padding:6px 14px;border-radius:99px;background:#fff;font-weight:800;font-size:22px;color:#21324a;box-shadow:0 3px 10px rgba(0,0,0,.12);font-variant-numeric:tabular-nums}
 .bt-timer.low{background:#ffe1dc;color:#c0392b;animation:pulse 1s infinite}
 
 
 
-.bln.own{opacity:.85;transition:opacity .8s .4s}
 /* Ballon-Jagd v3: launchers, darts, treasure, end card */
 .bt .bub-head{gap:10px}
 .bt-mission{padding:6px 12px;border-radius:99px;background:#fff;font-weight:700;font-size:14px;color:#3b2a5a;box-shadow:0 3px 10px rgba(0,0,0,.1);max-width:260px}
@@ -2078,14 +2069,6 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 @keyframes gunkick{50%{transform:translateY(-5px)}}
 .bt-l .gp-bub{top:40px;left:calc(50% + 20px);z-index:6}
 .bt-dart{position:absolute;left:0;top:0;width:30px;height:4px;margin:-2px 0 0 -26px;border-radius:2px;background:linear-gradient(90deg,var(--c) 0 30%,#5d4630 30% 88%,#c9ced6 88%);pointer-events:none;z-index:5;transform-origin:26px 2px}
-.bln.gone{transition:transform .15s,opacity .15s;opacity:0}
-.bln.sm{width:calc(var(--sz,84px)*.72);height:calc(var(--sz,84px)*.72*1.55)}
-.bln.sm .bb{height:calc(var(--sz,84px)*.72*1.12)}
-.bln.sm .bb b{font-size:calc(var(--sz,84px)*.72*.56)}
-.bln.sm .str{top:calc(var(--sz,84px)*.72*1.16);height:calc(var(--sz,84px)*.72*.4)}
-.bln.gold .bb{background:radial-gradient(circle at 30% 24%,#fff 0 7%,rgba(255,255,255,.4) 13%,rgba(255,255,255,0) 28%),radial-gradient(circle at 46% 42%,#fff3b0,#ffc93c 50%,#c98a00);box-shadow:0 0 0 5px var(--gc,#fff),0 0 26px var(--gc,#ffd34d),inset -8px -12px 20px rgba(120,60,0,.25);animation:goldglow .7s ease-in-out infinite alternate}
-.bln.gold.mine .bb{box-shadow:0 0 0 7px var(--gc),0 0 40px var(--gc),inset -8px -12px 20px rgba(120,60,0,.25)}
-.bln.gold.wait{opacity:.6}
 @keyframes goldglow{to{filter:brightness(1.15) saturate(1.2)}}
 .bt-float{position:absolute;transform:translate(-50%,0);font:800 26px 'Andika',sans-serif;color:var(--c,#2fc28a);text-shadow:0 2px 0 #fff,0 0 8px #fff;pointer-events:none;z-index:6;animation:btfl 1.1s ease-out forwards}
 .bt-float.neg{color:#e5394f}
@@ -2122,7 +2105,6 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 /* Ballon-Jagd v4: prettier sky, real crossbows, stages, frenzy */
 .bt-sky{background:radial-gradient(circle at 85% 18%,rgba(255,244,190,.95) 0 7%,rgba(255,236,160,.35) 13%,transparent 26%),radial-gradient(ellipse 30% 9% at 22% 40%,rgba(255,255,255,.9),transparent 70%),radial-gradient(ellipse 24% 7% at 70% 62%,rgba(255,255,255,.75),transparent 70%),linear-gradient(180deg,#7ccaf5 0%,#b6e3fb 45%,#e9f7ff 80%,#fff3f8 100%)}
 .bt-sky.frenzy{box-shadow:inset 0 0 0 4px #ff8a00,inset 0 0 40px rgba(255,120,0,.35)}
-.bln .bb{background:radial-gradient(ellipse 22% 16% at 32% 24%,rgba(255,255,255,.95),rgba(255,255,255,0) 100%),radial-gradient(ellipse 60% 20% at 50% 92%,rgba(255,255,255,.28),transparent 70%),radial-gradient(circle at 42% 38%,color-mix(in srgb,var(--b1) 70%,#fff) 0%,var(--b1) 42%,color-mix(in srgb,var(--b1) 70%,#2a0a30) 100%)}
 .bt-band{height:96px}
 .bt-gun{width:40px;height:50px;margin-top:0;transform-origin:50% 40%;filter:drop-shadow(0 3px 3px rgba(0,0,0,.3))}
 .bt-gun svg{width:100%;height:100%;display:block}
@@ -2137,8 +2119,6 @@ img.bot-photo{object-fit:cover;border-radius:50%}
 .bt-band{height:104px}
 .bt-tick{top:112px}
 .target-badge .crys.team{font-size:clamp(34px,6vw,54px)}
-.bln.team .bb b{font-size:calc(var(--sz,84px)*.42)}
-.bln.sm.team .bb b{font-size:calc(var(--sz,84px)*.72*.42)}
 /* Ballon-Jagd: use the whole screen (phone + iPad) */
 .screen.bt{gap:6px;max-width:none}
 .bt .tog-strip{position:fixed;right:12px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:60;background:none!important;border:0!important;box-shadow:none!important;padding:0!important;margin:0!important;width:auto!important;min-height:0!important}
@@ -2172,10 +2152,6 @@ body.bt-on .spk{top:auto;bottom:calc(62px + env(safe-area-inset-bottom,0px))}
 .bj-hud .bt-mission{box-shadow:none;background:#f3eeff;max-width:none;flex:1 1 100%;text-align:center;font-size:12.5px;padding:3px 8px}
 .bj-hud .bt-mission.done{background:#d9ffe6}
 .bt .tog-strip{bottom:calc(84px + env(safe-area-inset-bottom,0px))}
-.bln.word{width:calc(var(--sz,84px)*1.5)}
-.bln.word .bb{border-radius:46%/52%}
-.bln.word .bb b{font-size:calc(var(--sz,84px)*.3);letter-spacing:-.01em}
-.bln.word .str{left:50%}
 @media (min-width:700px){.bj-hud .bt-mission{flex:0 1 auto;max-width:34%}}
 .bt .bt-wm .crys{all:unset;display:block;font:800 min(40vh,50vw)/1 var(--font-read)!important;color:rgba(255,255,255,.6)!important;text-shadow:0 0 34px rgba(90,150,220,.35),0 4px 0 rgba(90,150,220,.18);letter-spacing:-.04em;background:none!important;box-shadow:none!important;border:0!important;clip-path:none!important;min-width:0!important;height:auto!important;padding:0!important}
 .bt .bt-wm .crys.team{font-size:min(28vh,34vw)!important}
@@ -2184,9 +2160,7 @@ body.bt-on .spk{top:calc(180px + env(safe-area-inset-top,0px));bottom:auto}
 /* Ballon-Jagd: cheap to draw (phones): no blur behind the bar, no animated filters, no drop-shadow filters on moving parts */
 .bj-hud{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:rgba(255,255,255,.86)!important}
 .bt-gun{filter:none!important}
-.bln.gold .bb{animation:none!important}
-.bln.gold.mine .bb{transform:scale(1.06)}
-.bln .str{animation:none!important;transform:rotate(4deg)}
+.bj-cv{position:absolute;inset:0;z-index:1;touch-action:none;display:block}
 
 </style>
 <svg id="defs" width="0" height="0" aria-hidden="true"></svg>
@@ -2202,6 +2176,6 @@ body.bt-on .spk{top:calc(180px + env(safe-area-inset-top,0px));bottom:auto}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>window.FUNKEL_SITE = 1;</script>
-<script src="app.js?v=1342121"></script>
+<script src="app.js?v=1345221"></script>
 </body>
 </html>

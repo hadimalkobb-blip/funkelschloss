@@ -1847,7 +1847,7 @@ const FX = {
   },
   burstAt(el, opt) { if (!el) return; const r = el.getBoundingClientRect(); this.burst(r.left + r.width / 2, r.top + r.height / 2, opt); },
   burst(x, y, opt) {
-    opt = opt || {}; const n = opt.n || 18, cols = opt.colors || ['#ffd978', '#fff6c8', '#f2b134', '#ffffff', getComputedStyle(document.documentElement).getPropertyValue('--accent-2').trim() || '#7cc4f2'];
+    opt = opt || {}; const n = opt.n || 18, cols = opt.colors || (this._cols && performance.now() - this._colsT < 5000 ? this._cols : (this._colsT = performance.now(), this._cols = ['#ffd978', '#fff6c8', '#f2b134', '#ffffff', getComputedStyle(document.documentElement).getPropertyValue('--accent-2').trim() || '#7cc4f2']));
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, sp = (opt.speed || 4) * (0.4 + Math.random());
       this.parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - (opt.up || 1), g: opt.g == null ? 0.12 : opt.g, life: (opt.life || 55) * (0.6 + Math.random() * 0.6), t: 0, s: (opt.size || 5) * (0.6 + Math.random() * 0.8), c: pick(cols), rot: Math.random() * 3, kind: opt.kind || 'star' });
@@ -10246,7 +10246,9 @@ function blasenTog(stage, ctx) {
   field.append(band, tick, frzEl, cdEl);
   const wm = h('div', { class: 'bt-wm target-badge' }, badge);
   const hud = h('div', { class: 'bj-hud' }, sayBtn(() => announce(), 'Nochmal hören'), timerEl, meter, missEl);
-  field.prepend(wm); field.append(hud);
+  /* all balloons live on ONE canvas (drawn from cached sprites) — dozens of styled DOM elements were too heavy for phones */
+  const cv = h('canvas', { class: 'bj-cv' }), cx = cv.getContext('2d'); let dpr = 1;
+  field.prepend(wm); wm.after(cv); field.append(hud);
   scr.append(field);
   togEnsure(R);
   document.body.classList.add('bt-on'); App.clean.push(() => document.body.classList.remove('bt-on'));
@@ -10291,21 +10293,68 @@ function blasenTog(stage, ctx) {
   /* ---- balloons ---- */
   let fw = 600, fh = 400, sz = 80, bandH = 104, last = 0, lanes = 5;
   const B = new Map(); let bSeq = 0;
-  function measure() { const r = field.getBoundingClientRect(); fw = Math.max(240, r.width); fh = Math.max(260, r.height); lanes = clamp(Math.floor(fw / 78), Math.max(4, (pl.length || 2) + 2), 10); sz = Math.round(Math.min(fw / lanes * 0.94, 104, (fh - bandH) * 0.2)); field.style.setProperty('--sz', sz + 'px'); }
+  function measure() { const r = field.getBoundingClientRect(); fw = Math.max(240, r.width); fh = Math.max(260, r.height); lanes = clamp(Math.floor(fw / 78), Math.max(4, (pl.length || 2) + 2), 10); sz = Math.round(Math.min(fw / lanes * 0.94, 104, (fh - bandH) * 0.2)); field.style.setProperty('--sz', sz + 'px'); dpr = Math.min(2, pdpr(fw, fh)); cv.width = Math.round(fw * dpr); cv.height = Math.round(fh * dpr); cv.style.width = fw + 'px'; cv.style.height = fh + 'px'; SPR.clear(); }
   /* one timeline for everybody: every balloon is (y0 at host time t0, speed); guests estimate the host clock from the fastest snapshot,
      so positions never jump when a late snapshot arrives */
   const base = performance.now(); let off = null;
   const hnow = () => amHost ? performance.now() - base : off == null ? 0 : performance.now() - off;
   const yAt = (b, t) => b.y0 - b.vy * (t - b.t0) / 1000;
   const goldIdx = b => Math.floor(Math.max(0, hnow() - b.t0) / 1000 / SLOT) % Math.max(1, pl.length);
-  function mkEl(b) {
-    const el = h('div', { class: 'bln' + (b.sm ? ' sm' : '') + (b.g ? ' gold' : '') + (String(b.s).length > 3 ? ' word' : String(b.s).length > 1 ? ' team' : ''), role: 'button', style: { '--b1': b.g ? '#ffc93c' : BT_COLS[b.c % BT_COLS.length] } }, h('i', { class: 'str' }), h('div', { class: 'bb' }, h('b', {}, b.g ? '🎁' : b.s)));
-    b.el = el; if (b.t0 == null) { b.t0 = hnow(); b.y0 = b.y; } field.appendChild(el);
-    el.addEventListener('pointerdown', e => { e.preventDefault(); unlockAudio(); shoot(b); });
+  function mkEl(b) { if (b.t0 == null) { b.t0 = hnow(); b.y0 = b.y; } }
+  const bw = b => b.sm ? sz * 0.72 : String(b.s).length > 3 ? sz * 1.5 : sz;
+  const center = b => ({ x: (b.px || 0) + bw(b) / 2, y: (b.py || 0) + bw(b) * 0.55 });
+  const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, bl = n & 255, f = v => Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k); return `rgb(${f(r)},${f(g)},${f(bl)})`; };
+  const SPR = new Map();
+  function sprite(b, ring, mine) {
+    const w = bw(b), key = [b.c, b.s, b.sm, b.g, ring || '', mine ? 1 : 0, Math.round(w)].join('|'); let c = SPR.get(key); if (c) return c;
+    const H = w * 1.55, pad = 10; c = document.createElement('canvas'); c.width = Math.ceil((w + pad * 2) * dpr); c.height = Math.ceil((H + pad * 2) * dpr);
+    const g = c.getContext('2d'); g.scale(dpr, dpr); g.translate(pad, pad);
+    const col = b.g ? '#ffc93c' : BT_COLS[b.c % BT_COLS.length], bh = w * 1.12, cxm = w / 2, cym = bh / 2;
+    g.strokeStyle = shade(col, -0.35); g.lineWidth = 2; g.beginPath(); g.moveTo(cxm, bh + 6); g.quadraticCurveTo(cxm + 6, bh + (H - bh) * 0.5, cxm - 2, H - 2); g.stroke();
+    g.fillStyle = shade(col, -0.35); g.beginPath(); g.moveTo(cxm - 7, bh + 8); g.lineTo(cxm + 7, bh + 8); g.lineTo(cxm, bh - 2); g.closePath(); g.fill();
+    if (ring) { g.fillStyle = ring; g.globalAlpha = mine ? 0.55 : 0.3; g.beginPath(); g.ellipse(cxm, cym, w / 2 + (mine ? 9 : 6), bh / 2 + (mine ? 9 : 6), 0, 0, 6.283); g.fill(); g.globalAlpha = 1; }
+    const gr = g.createRadialGradient(cxm - w * 0.12, cym - bh * 0.14, w * 0.05, cxm, cym, w * 0.62);
+    gr.addColorStop(0, shade(col, 0.45)); gr.addColorStop(0.45, col); gr.addColorStop(1, shade(col, -0.32));
+    g.fillStyle = gr; g.beginPath(); g.ellipse(cxm, cym, w / 2, bh / 2, 0, 0, 6.283); g.fill();
+    if (ring) { g.strokeStyle = ring; g.lineWidth = mine ? 6 : 4; g.stroke(); }
+    g.fillStyle = 'rgba(255,255,255,.75)'; g.beginPath(); g.ellipse(cxm - w * 0.18, cym - bh * 0.24, w * 0.11, bh * 0.07, -0.5, 0, 6.283); g.fill();
+    const txt = b.g ? '🎁' : String(b.s), fs = b.g ? w * 0.5 : txt.length > 3 ? w * 0.28 : txt.length > 1 ? w * 0.42 : w * 0.56;
+    g.font = `700 ${fs}px Andika, 'Comic Sans MS', sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (!b.g) { g.lineWidth = Math.max(2, fs * 0.08); g.strokeStyle = shade(col, -0.45); g.strokeText(txt, cxm, cym); g.fillStyle = '#fff'; }
+    g.fillText(txt, cxm, cym);
+    if (SPR.size > 160) SPR.delete(SPR.keys().next().value); SPR.set(key, c); return c;
   }
-  const center = b => { const r = b.el.getBoundingClientRect(), f = field.getBoundingClientRect(); return { x: r.left - f.left + r.width / 2, y: r.top - f.top + r.width * 0.55 }; };
+  /* the picture runs on a smoothed clock: if the phone stalls for a moment, balloons slow down and catch up instead of teleporting */
+  let rt = null, lastReal = 0;
+  function viewClock(ts) {
+    const tv = hnow(), step = lastReal ? Math.min(60, ts - lastReal) : 16; lastReal = ts;
+    if (rt == null || Math.abs(tv - rt) > 2500) rt = tv; else { rt += step; if (tv > rt) rt += (tv - rt) * 0.12; if (rt > tv) rt = tv; }
+    return rt;
+  }
+  function draw(ts, vt) {
+    cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, fw, fh);
+    const t = ts / 1000, now = performance.now();
+    for (const [id, b] of B) {
+      if (b.popped) continue;
+      const w = bw(b), x = b.x * fw - w / 2 + Math.sin(t * 0.8 + id) * 4 + (b.wobT && now - b.wobT < 400 ? Math.sin((now - b.wobT) / 25) * 7 : 0), y = b.y * fh;
+      b.px = x; b.py = y;
+      let ring = null, mine = false; if (b.g) { const gi = goldIdx(b); ring = colOf(gi); mine = gi === meI; }
+      const sp = sprite(b, ring, mine), pad = 10;
+      cx.globalAlpha = b.wait ? 0.55 : 1;
+      cx.save(); cx.translate(x + w / 2, y); cx.rotate(Math.sin(t * 1.1 + id) * 0.07); cx.drawImage(sp, -w / 2 - pad, -pad, sp.width / dpr, sp.height / dpr); cx.restore();
+    }
+    cx.globalAlpha = 1;
+  }
+  window.__bj = { B, shoot: b => shoot(b), my: () => myT, meI: () => meI, goldIdx: b => goldIdx(b) };  /* test hook */
+  cv.addEventListener('pointerdown', e => {
+    e.preventDefault(); unlockAudio();
+    const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+    const list = [...B.values()].filter(b => !b.popped).reverse();
+    const hit = list.find(b => { const w = bw(b), c = center(b), rx = w / 2 + 6, ry = w * 0.56 + 6; return ((px - c.x) / rx) ** 2 + ((py - c.y) / ry) ** 2 <= 1; });
+    if (hit) shoot(hit);
+  });
   function dart(i, b, ok, done) {
-    const L = launchers[i]; if (!L || !b.el) { if (done) done(); return; }
+    const L = launchers[i]; if (!L || b.popped) { if (done) done(); return; }
     const f = field.getBoundingClientRect(), lr = L.gun.getBoundingClientRect();
     const x0 = lr.left - f.left + lr.width / 2, y0 = lr.top - f.top + lr.height * 0.8, c = center(b);
     const ang = Math.atan2(c.y - y0, c.x - x0) * 180 / Math.PI;
@@ -10321,15 +10370,14 @@ function blasenTog(stage, ctx) {
     };
   }
   function popFx(b, i, big) {
-    if (!b.el || b.popped) return; b.popped = 1;
-    const r = b.el.getBoundingClientRect(), col = colOf(i);
-    const x = r.left + r.width / 2, y = r.top + r.width * 0.5;
-    FX.burst(x, y, { n: big ? 46 : 26, colors: big ? ['#ffd34d', '#ffffff', '#ff8fc4', '#7fd6ff'] : [col, '#ffffff', b.el.style.getPropertyValue('--b1') || '#ffd34d'] });
+    if (b.popped) return; b.popped = 1;
+    const f = field.getBoundingClientRect(), c = center(b), col = colOf(i);
+    const x = f.left + c.x, y = f.top + c.y;
+    FX.burst(x, y, { n: big ? 40 : 22, colors: big ? ['#ffd34d', '#ffffff', '#ff8fc4', '#7fd6ff'] : [col, '#ffffff', BT_COLS[b.c % BT_COLS.length]] });
     if (big) { setTimeout(() => FX.burst(x - 30, y - 20, { n: 22, colors: ['#ffe27a', '#fff'] }), 120); setTimeout(() => FX.burst(x + 30, y - 10, { n: 22, colors: ['#bfe8ff', '#fff'] }), 220); }
-    const fl = h('b', { class: 'bt-float', style: { left: (r.left - field.getBoundingClientRect().left + r.width / 2) + 'px', top: (r.top - field.getBoundingClientRect().top) + 'px', '--c': col } }, big ? BT_TREAS[big][0] + ' ' + BT_TREAS[big][1] : (i === meI && Date.now() < x2To ? '+2' : '+1'));
+    const fl = h('b', { class: 'bt-float', style: { left: c.x + 'px', top: (c.y - bw(b) * 0.5) + 'px', '--c': col } }, big ? BT_TREAS[big][0] + ' ' + BT_TREAS[big][1] : (i === meI && Date.now() < x2To ? '+2' : '+1'));
     field.appendChild(fl); setTimeout(() => fl.remove(), 1100);
     AE.play(big ? 'boom2' : 'pop'); if (!big && i === meI && M.streak >= 3) AE.play('combo');
-    b.el.classList.add('gone'); setTimeout(() => { if (b.el) b.el.remove(); }, 200);
   }
   function stageBanner() {
     const bn = h('div', { class: 'bt-stage' }, h('b', {}, stg === 3 ? '⭐ Stufe 3: Wörter!' : '⭐ Stufe 2: Buchstaben-Teams!'), h('span', {}, stg === 3 ? 'Schieß Wörter mit ' : 'Dein Team: ', h('i', {}, myT || '?')));
@@ -10343,7 +10391,7 @@ function blasenTog(stage, ctx) {
     const vx = c.x - x0, vy = c.y - y0, l2 = vx * vx + vy * vy || 1;
     let extra = 0;
     for (const o of B.values()) {
-      if (o === b || o.o >= 0 || o.popped || o.mine || o.g || o.l !== myT || !o.el) continue;
+      if (o === b || o.o >= 0 || o.popped || o.mine || o.g || o.l !== myT) continue;
       const p = center(o), t = ((p.x - x0) * vx + (p.y - y0) * vy) / l2; if (t < 0.05 || t > 0.98) continue;
       const dd = Math.hypot(p.x - x0 - vx * t, p.y - y0 - vy * t); if (dd > sz * 0.42) continue;
       o.mine = 1; o.o = meI; extra++; setTimeout(() => popFx(o, meI), 220 * t); req(o.id, 0);
@@ -10357,7 +10405,7 @@ function blasenTog(stage, ctx) {
     if (okL && !b.g) pierce(b);
     if (okL) {
       b.mine = 1;
-      if (b.g) { dart(meI, b, true, () => { b.el && b.el.classList.add('wait'); setTimeout(() => { if (!b.popped) { b.mine = 0; b.el && b.el.classList.remove('wait'); } }, 1500); }); req(b.id, 1); return; }
+      if (b.g) { dart(meI, b, true, () => { b.wait = 1; setTimeout(() => { if (!b.popped) { b.mine = 0; b.wait = 0; } }, 1500); }); req(b.id, 1); return; }
       b.o = meI; const add = (now < x2To ? 2 : 1) + (frenzy ? 1 : 0);
       dart(meI, b, true, () => popFx(b, meI));
       R.pts += add; M.hits++; M.streak++; M.best = Math.max(M.best, M.streak); R.first = M.hits; R.i = Math.min(R.n, M.hits);
@@ -10369,7 +10417,7 @@ function blasenTog(stage, ctx) {
       req(b.id, 0);
     } else {
       freezeTo = now + 900; M.miss++; M.streak = 0; R.pts = Math.max(0, R.pts - 1);
-      dart(meI, b, false); b.el.classList.remove('wob'); void b.el.offsetWidth; b.el.classList.add('wob'); AE.play('no');
+      dart(meI, b, false); b.wobT = performance.now(); AE.play('no');
       const fl = h('b', { class: 'bt-float neg', style: { left: (center(b).x) + 'px', top: (center(b).y - 30) + 'px' } }, '−1'); field.appendChild(fl); setTimeout(() => fl.remove(), 1100);
       Brain.rec(keyOf(myT), false, keyOf(b.l)); if (R.tog) R.tog.res(0);
       if (!b.g && !isTeam(b.l) && LETTERS[b.l]) Nur.say([D(`Das ist ein ${LETTERS[b.l].nm}.`)], { keep: false });
@@ -10485,17 +10533,17 @@ function blasenTog(stage, ctx) {
   function hostTick() {
     const now = Date.now();
     Net.peers().forEach(pe => { const i = pl.indexOf(pe.id), q = pe.pr && pe.pr.bq; if (i < 0 || !q) return; q.forEach(([sq, id]) => { if (sq <= (lastBq[pe.id] || 0)) return; lastBq[pe.id] = sq; claim(i, id); }); });
-    for (const [id, b] of B) if (b.o >= 0 && b.ot && now - b.ot > 900) { B.delete(id); if (b.el && !b.popped) popFx(b, b.o, b.g ? b.k : 0); dirty = true; }
+    for (const [id, b] of B) if (b.o >= 0 && b.ot && now - b.ot > 900) { B.delete(id); if (!b.popped) popFx(b, b.o, b.g ? b.k : 0); dirty = true; }
     if (phase === 'play') {
       tLeft = Math.max(0, (endAt - now) / 1000);
       if (stg === 1 && DUR - tLeft >= S1 && T2.length) {
         stg = 2; swapTo = now + SWAP * 1000; strangers = strangers2;
-        for (const [id, b] of B) if (b.o < 0 && !b.g) { if (b.el) { b.el.classList.add('gone'); setTimeout(() => b.el && b.el.remove(), 200); } b.popped = 1; B.delete(id); }
+        for (const [id, b] of B) if (b.o < 0 && !b.g) { b.popped = 1; B.delete(id); }
         setup(pl, T2); stageBanner(); nextWave = swapTo; dirty = true; publish(true);
       }
       if (stg === 2 && DUR - tLeft >= S2 && T2.length) {
         stg = 3; swapTo = now + SWAP * 1000;
-        for (const [id, b] of B) if (b.o < 0 && !b.g) { if (b.el) { b.el.classList.add('gone'); setTimeout(() => b.el && b.el.remove(), 200); } b.popped = 1; B.delete(id); }
+        for (const [id, b] of B) if (b.o < 0 && !b.g) { b.popped = 1; B.delete(id); }
         stageBanner(); nextWave = swapTo; dirty = true; publish(true);
       }
       if (now >= nextWave && tLeft > 2 && now >= swapTo) { wave(); nextWave = now + waveGap() * 1000 * (tLeft <= 10 ? 0.7 : 1); }
@@ -10539,8 +10587,8 @@ function blasenTog(stage, ctx) {
     if (hp.bz && hp.bz !== lastBz) {
       lastBz = hp.bz; if (hp.bz.hn != null) { const o2 = performance.now() - hp.bz.hn; off = off == null ? o2 : Math.min(off + 2, o2); }
       if (!pl.length || hp.bz.pl.join() !== pl.join()) { setup(hp.bz.pl, hp.bz.T); measure(); }
-      if (hp.bz.st === 3 && stg === 2) { stg = 3; for (const [id, b] of B) if (b.o < 0 && !b.g) { if (b.el) b.el.remove(); b.popped = 1; B.delete(id); } stageBanner(); }
-      if (hp.bz.st === 2 && stg === 1) { stg = 2; for (const [id, b] of B) if (b.o < 0 && !b.g) { if (b.el) b.el.remove(); b.popped = 1; B.delete(id); } setup(hp.bz.pl, hp.bz.T); stageBanner(); }
+      if (hp.bz.st === 3 && stg === 2) { stg = 3; for (const [id, b] of B) if (b.o < 0 && !b.g) { b.popped = 1; B.delete(id); } stageBanner(); }
+      if (hp.bz.st === 2 && stg === 1) { stg = 2; for (const [id, b] of B) if (b.o < 0 && !b.g) { b.popped = 1; B.delete(id); } setup(hp.bz.pl, hp.bz.T); stageBanner(); }
       tLeft = hp.bz.tl;
       if ((hp.bz.ph === 'cd' || hp.bz.ph === 'play') && phase === 'wait') startIntro();
       if (hp.bz.ph === 'play' && phase === 'cd') { phase = 'play'; cdEl.hidden = true; }
@@ -10553,7 +10601,7 @@ function blasenTog(stage, ctx) {
         if (!b) { if (o >= 0) return; b = { id, l, s: sh, x, y0, t0, vy, o: -1, c, sm, g }; b.y = yAt(b, hnow()); B.set(id, b); mkEl(b); }
         if (o >= 0 && b.o < 0) { b.o = o; if (!b.g && o !== meI) dart(o, b, true, () => popFx(b, o)); }
       });
-      for (const [id, b] of B) if (!seen.has(id)) { if (b.el && !b.popped) { if (b.o >= 0 || b.mine) popFx(b, b.o >= 0 ? b.o : meI); else b.el.remove(); } B.delete(id); }
+      for (const [id, b] of B) if (!seen.has(id)) { if (!b.popped) { if (b.o >= 0 || b.mine) popFx(b, b.o >= 0 ? b.o : meI); else b.popped = 1; } B.delete(id); }
     }
     if (hp.be && hp.be.length) { const lastS = hp.be[hp.be.length - 1][1]; if (firstEv) { evSeen = lastS; firstEv = false; } else hp.be.forEach(e => { if (e[1] > evSeen) { evSeen = e[1]; onEvent(e); } }); } else firstEv = false;
   }
@@ -10565,15 +10613,13 @@ function blasenTog(stage, ctx) {
     if (!amHost) { applySnap(); if (phase === 'play') tLeft = Math.max(0, tLeft - dt); }
     const t = ts / 1000, topY = bandH / fh - 0.06;
     if (phase === 'play' && !frenzy && tLeft <= 10 && tLeft > 0.5) { frenzy = true; field.classList.add('frenzy'); ticker('🔥 Endspurt! Jeder Treffer +1 extra'); AE.play('combo'); Nur.say([D('Noch zehn Sekunden!'), ...arIf('باقي عشر ثواني!')], { keep: false }); }
+    const vt = viewClock(ts);
     for (const [id, b] of B) {
       if (b.popped) continue;
-      if (b.o < 0 || b.g) b.y = yAt(b, hnow());
-      if (b.y < topY - 0.25) { if (amHost && b.o < 0) { B.delete(id); dirty = true; } if (b.el) b.el.remove(); b.popped = 1; continue; }
-      const w = b.sm ? sz * 0.72 : String(b.s).length > 3 ? sz * 1.5 : sz;
-      const x = b.x * fw - w / 2 + Math.sin(t * 0.8 + id) * 4;
-      b.el.style.transform = `translate3d(${x.toFixed(1)}px,${(b.y * fh).toFixed(1)}px,0) rotate(${(Math.sin(t * 1.1 + id) * 4).toFixed(1)}deg)`;
-      if (b.g && !b.o_) { const gi = goldIdx(b); if (gi !== b.gi) { b.gi = gi; b.el.style.setProperty('--gc', colOf(gi)); b.el.classList.toggle('mine', gi === meI); b.el.querySelector('b').textContent = gi === meI ? '🎁' : T[gi] ? '🎁' : '🎁'; } }
+      if (b.o < 0 || b.g) b.y = yAt(b, vt);
+      if (b.y < topY - 0.25) { if (amHost && b.o < 0) { B.delete(id); dirty = true; } b.popped = 1; continue; }
     }
+    draw(ts, vt);
     const tl = String(Math.ceil(tLeft)), tb = timerEl.lastChild; if (tb.textContent !== tl) { tb.textContent = tl; timerEl.classList.toggle('low', tLeft <= 10 && phase === 'play'); if (tLeft <= 5 && tLeft > 0 && phase === 'play') AE.play('tock'); }
     if (ts - slow > 500) { slow = ts; paintScores(); if (x2To && Date.now() > x2To) { x2To = 0; paintMeter(); } frzEl.hidden = Date.now() > freezeTo || !freezeTo || frzEl.hidden; }
     if (amHost) hostTick();

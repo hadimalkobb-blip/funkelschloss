@@ -5669,17 +5669,18 @@ const BotTalk = {
     const C = botCfg(), B = (C.bots && C.bots[bot]) || {}, mine = B.mine || [];
     /* "how often": nobody starts a new line before the chosen pause is over */
     if (!o.force && !o.test && C.gap && (this.speaking || Date.now() - this.lastEnd < C.gap * 1000)) return;
-    let custom = !!o.custom, ar = o.ar;
+    let msg = o.msg ? botMsg(o.msg) : null, ar = o.ar;
     if (!o.test) {
-      if (mine.length && (B.only || Math.random() < 0.35)) { text = pick(mine); custom = true; }
-      else if ((B.off || []).includes(text)) { if (!mine.length) return; text = pick(mine); custom = true; }
+      if (mine.length && (B.only || Math.random() < 0.35)) msg = botMsg(pick(mine));
+      else if ((B.off || []).includes(text)) { if (!mine.length) return; msg = botMsg(pick(mine)); }
     }
-    if (custom) ar = '';
-    /* "how much": a line that is too long becomes just the feeling */
-    let mode = C.show; const maxW = [0, 4, 9, 999][C.len] || 999;
-    if (mode !== 'emoji' && !custom && text.split(/\s+/).length > maxW) mode = 'emoji';
+    if (msg) { text = msg.t || ''; ar = ''; }
+    /* "how much": a line that is too long becomes just the feeling; each friend can have its own mode */
+    let mode = B.show || C.show; const maxW = [0, 4, 9, 999][C.len] || 999;
+    if (mode !== 'emoji' && !msg && text.split(/\s+/).length > maxW) mode = 'emoji';
+    if (msg && !msg.t && !msg.snd) mode = 'emoji';
     if (this.q.length >= 3) this.q.shift();
-    this.q.push({ bot, text, ar: ar != null ? ar : botAr(text), custom, mode, feel: feelOf(o.cat), at: Date.now(), maxWait: o.maxWait || 4500, onSpeak: o.onSpeak, gen: App.gen });
+    this.q.push({ bot, text, ar: ar != null ? ar : botAr(text), msg, mode, feel: feelOf(o.cat), at: Date.now(), maxWait: o.maxWait || 4500, onSpeak: o.onSpeak, gen: App.gen });
     this.pump();
   },
   pump() {
@@ -5695,11 +5696,14 @@ const BotTalk = {
     if (it.onSpeak) try { it.onSpeak(it.text); } catch (e) { }
     this.speaking = true;
     const done = () => { Speaker.hide(); this.speaking = false; this.lastEnd = Date.now(); this.busyAt = Date.now(); this.t = setTimeout(() => this.pump(), 300); };
+    const m = it.msg, emoOn = botEmoOn(it.bot), fe = m && m.e ? { emo: m.e } : { emo: F.e, pic: F.pic };
+    /* an own message with its own sound: show it and play the sound (no reading voice) */
+    if (m && m.snd) { Speaker.show(it.bot, it.mode === 'emoji' ? '' : it.text, it.mode === 'words' && !(!it.text) ? null : fe); playMsgSound(it.bot, m).then(done, done); return; }
     feelSnd(F.snd, it.bot, F.id);
-    if (it.mode === 'emoji') { Speaker.show(it.bot, '', { emo: F.e, pic: F.pic }); setTimeout(done, 1500); return; }
-    Speaker.show(it.bot, it.text, it.mode === 'both' ? { emo: F.e, pic: F.pic } : null);
+    if (it.mode === 'emoji' || !it.text) { Speaker.show(it.bot, '', emoOn || (m && m.e) ? fe : { emo: '💬' }); setTimeout(done, 1500); return; }
+    Speaker.show(it.bot, it.text, it.mode === 'both' && emoOn ? fe : null);
     const arab = /[\u0600-\u06FF]/.test(it.text);
-    const parts = it.custom ? [Object.assign(BOT(it.bot + (arab ? '_ar' : ''), it.text), { custom: 1 })] : [BOT(it.bot, it.text), it.ar ? BOT(it.bot + '_ar', it.ar) : null];
+    const parts = m ? [Object.assign(BOT(it.bot + (arab ? '_ar' : ''), it.text), { custom: 1 })] : [BOT(it.bot, it.text), it.ar ? BOT(it.bot + '_ar', it.ar) : null];
     const speak = () => { const p = Nur.say(parts, { keep: false, noBubble: true, noAr: true, botLine: true }); if (p && p.then) p.then(done, done); else done(); };
     if (F.snd !== 'none') setTimeout(speak, 380); else speak();
   },
@@ -5723,10 +5727,10 @@ function botMood(el, cat) {
 }
 /* mood + (maybe) a spoken line in the bot's own voice; o.talk=false keeps it silent */
 function botReact(bot, cat, el, o) {
-  o = o || {}; botMood(el, cat);
+  o = o || {}; if (botEmoOn(bot)) botMood(el, cat);
   if (o.talk === false) return null;
   const line = botLine(bot, cat);
-  BotTalk.add(bot, line, { maxWait: o.maxWait, cat, onSpeak: t => { if (o.bubble) o.bubble(t); if (el) emojiBurst(el, [botFeel(feelOf(cat)).e, '✨'], 2); } });
+  BotTalk.add(bot, line, { maxWait: o.maxWait, cat, onSpeak: t => { if (o.bubble) o.bubble(t); if (el && botEmoOn(bot)) emojiBurst(el, [botFeel(feelOf(cat)).e, '✨'], 2); } });
   return line;
 }
 function botBanter(present, bubbleFor) {
@@ -5742,8 +5746,7 @@ function botBanter(present, bubbleFor) {
 /* old entry point (neighbours, battles): now also waits its turn */
 function botSay(botId, kind, el, o) {
   o = o || {};
-  if (el) emojiBurst(el, NB_EMO[kind] || NB_EMO.taunt, o.n || 3);
-  botMood(el, kind);
+  if (botEmoOn(botId)) { if (el) emojiBurst(el, NB_EMO[kind] || NB_EMO.taunt, o.n || 3); botMood(el, kind); }
   const fun = typeof NB_FUN !== 'undefined' && NB_FUN[kind];
   if (fun) {
     const key = botId + ':fun:' + kind, rec = botRecent[key] || (botRecent[key] = []);
@@ -6230,25 +6233,44 @@ function botSettings(box) {
 /* per friend: speed, a device voice for own sentences, which lines it may say, own sentences */
 function botLinesPanel(id, repaint) {
   const B = botOpt(id), wrap = h('div', { class: 'bc-lines' });
-  const say = (t, custom) => { Speech.stop(); BotTalk.clear(); BotTalk.lastEnd = 0; BotTalk.busyAt = 0; BotTalk.add(id, t, { force: true, test: true, custom, ar: custom ? '' : undefined }); };
+  const testMsg = m => { Speech.stop(); BotTalk.clear(); BotTalk.lastEnd = 0; BotTalk.busyAt = 0; BotTalk.add(id, m.t || m.e || '…', { force: true, test: true, msg: m }); };
   const rate = h('b', { class: 'tempo-val' }, '×' + (B.rate || 1).toFixed(2));
   wrap.append(h('p', { class: 'hub-sub' }, '🎚️ Tempo'), emoSlider({ min: 0.6, max: 1.6, step: 0.05, val: B.rate || 1, label: '', a: '🍃', b: '⚡', onInput: v => { B.rate = Math.round(v * 100) / 100; rate.textContent = '×' + B.rate.toFixed(2); Store.save(); }, onDone: () => friendSample(id) }), rate);
-  /* own sentences */
+  /* this friend only: emoji, words or both — and the feeling symbol above the picture on/off */
+  wrap.append(h('p', { class: 'hub-sub' }, '🎭 Was zeigt ' + ((QUIZ_BOTS.find(x => x.id === id) || {}).name || '') + '?'),
+    optGrid([['🧁', 'Wie alle'], ['✨', 'Nur Emoji'], ['✨💬', 'Beides'], ['💬', 'Nur Wörter']], ['', 'emoji', 'both', 'words'].indexOf(B.show || ''), i => { B.show = ['', 'emoji', 'both', 'words'][i] || undefined; Store.save(); }),
+    toggleRow('✨ Emoji an', !B.emoOff, v => { B.emoOff = !v; Store.save(); }));
+  /* own messages: text and/or emoji, optionally with an own sound (recorded here or picked from the phone) */
+  const draft = { t: '', e: '', snd: null, ab: null };
   const inp = h('input', { type: 'text', class: 'bc-in', placeholder: 'Eigener Satz …', maxlength: '120' });
-  const add = h('button', { class: 'btn gold small', type: 'button' }, '➕');
-  const tryB = h('button', { class: 'btn soft small', type: 'button', onclick: () => { const t = inp.value.trim(); if (t) say(t, true); } }, '🔊');
-  add.onclick = () => { const t = inp.value.trim(); if (!t) return; if (!B.mine.includes(t)) B.mine.push(t); Store.save(); AE.play('unlock'); repaint(); };
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') add.click(); });
-  const mine = h('div', { class: 'bc-mine' }, ...B.mine.map((t, k) => h('div', { class: 'bc-li own' }, h('span', {}, t),
-    h('button', { class: 'btn soft small', type: 'button', onclick: () => say(t, true) }, '🔊'),
-    h('button', { class: 'btn soft small', type: 'button', 'aria-label': 'Löschen', onclick: () => { B.mine.splice(k, 1); if (!B.mine.length) B.only = false; Store.save(); AE.play('tap'); repaint(); } }, '🗑️'))));
-  wrap.append(h('p', { class: 'hub-sub' }, '✏️ Eigene Sätze'), h('div', { class: 'bc-add' }, inp, tryB, add), mine);
-  if (B.mine.length) wrap.append(toggleRow('Nur meine Sätze', !!B.only, v => { B.only = v; Store.save(); }));
-  /* a device voice for own sentences (recorded voices only know the built-in lines) */
+  inp.addEventListener('input', () => { draft.t = inp.value.trim(); });
+  const emoRow = h('div', { class: 'bc-emos small' });
+  const paintEmo = () => { emoRow.innerHTML = ''; FEEL_EMO.forEach(e => emoRow.appendChild(h('button', { class: 'bc-em' + (draft.e === e ? ' on' : ''), type: 'button', onclick: () => { draft.e = draft.e === e ? '' : e; AE.play('pop'); paintEmo(); } }, e))); };
+  paintEmo();
+  const sndInfo = h('span', { class: 'bc-sndinfo' }, '');
+  const paintSnd = () => { sndInfo.innerHTML = ''; if (draft.ab) sndInfo.append('🎵 ', h('button', { class: 'btn soft small', type: 'button', onclick: () => playAB(draft.ab) }, '▶'), h('button', { class: 'btn soft small', type: 'button', onclick: () => { draft.ab = null; paintSnd(); } }, '✖')); };
+  const file = h('input', { type: 'file', accept: 'audio/*', hidden: true });
+  file.onchange = async () => { const f = file.files && file.files[0]; if (!f) return; if (f.size > 3000000) { toast('Zu groß – höchstens 3 MB'); return; } draft.ab = await f.arrayBuffer(); paintSnd(); playAB(draft.ab); };
+  const recB = h('button', { class: 'btn soft small bc-rec', type: 'button' }, '🎙️ Aufnehmen');
+  recB.onclick = () => recToggle(recB, ab => { draft.ab = ab; paintSnd(); playAB(ab); });
+  const save = h('button', { class: 'btn gold', type: 'button' }, '➕ Speichern');
+  save.onclick = async () => {
+    draft.t = inp.value.trim(); if (!draft.t && !draft.e && !draft.ab) { AE.play('no'); return; }
+    const m = { t: draft.t, e: draft.e, k: Date.now().toString(36) };
+    if (draft.ab) { const ok = await SndDB.put('msg:' + id + ':' + m.k, draft.ab); if (ok) m.snd = 1; else toast('Ton speichern geht hier leider nicht.'); }
+    B.mine.push(m); Store.save(); AE.play('unlock'); repaint();
+  };
+  const tryB = h('button', { class: 'btn soft', type: 'button', onclick: async () => { draft.t = inp.value.trim(); if (draft.ab) { Speaker.show(id, draft.t, draft.e ? { emo: draft.e } : null); await playAB(draft.ab); Speaker.hide(); } else if (draft.t || draft.e) testMsg({ t: draft.t, e: draft.e }); } }, '🔊 Probe');
+  const mine = h('div', { class: 'bc-mine' }, ...B.mine.map((raw, k) => { const m = botMsg(raw); return h('div', { class: 'bc-li own' }, m.e ? h('b', { class: 'bc-me' }, m.e) : null, h('span', {}, m.t || ''), m.snd ? h('i', { class: 'bc-tag' }, '🎵') : null,
+    h('button', { class: 'btn soft small', type: 'button', onclick: () => testMsg(m) }, '🔊'),
+    h('button', { class: 'btn soft small', type: 'button', 'aria-label': 'Löschen', onclick: () => { if (m.snd) SndDB.del('msg:' + id + ':' + m.k); B.mine.splice(k, 1); if (!B.mine.length) B.only = false; Store.save(); AE.play('tap'); repaint(); } }, '🗑️')); }));
+  wrap.append(h('p', { class: 'hub-sub' }, '✏️ Eigene Nachricht'), inp, emoRow, h('div', { class: 'bc-add' }, recB, h('button', { class: 'btn soft small', type: 'button', onclick: () => file.click() }, '📁 Ton vom Handy'), sndInfo, file), h('div', { class: 'bc-add' }, tryB, save), mine);
+  if (B.mine.length) wrap.append(toggleRow('Nur meine Nachrichten', !!B.only, v => { B.only = v; Store.save(); }));
+  /* a device voice for own sentences without an own sound (recorded voices only know the built-in lines) */
   const vs = (Speech.voices || []).filter(v => /^(de|ar)/i.test(v.lang || ''));
-  if (vs.length && B.mine.length) {
+  if (vs.length && B.mine.some(m => botMsg(m).t && !botMsg(m).snd)) {
     const sel = h('select', { class: 'bc-sel' }, h('option', { value: '' }, '🎙️ Automatisch'), ...vs.map(v => h('option', { value: v.voiceURI, selected: B.dev === v.voiceURI }, v.name + ' (' + v.lang + ')')));
-    sel.onchange = () => { B.dev = sel.value || undefined; Store.save(); if (B.mine.length) say(B.mine[0], true); };
+    sel.onchange = () => { B.dev = sel.value || undefined; Store.save(); const m = B.mine.map(botMsg).find(x => x.t && !x.snd); if (m) testMsg(m); };
     wrap.append(h('p', { class: 'hub-sub' }, '🎙️ Stimme für eigene Sätze'), sel);
   }
   /* the built-in lines: tap to switch one off */
@@ -6266,12 +6288,39 @@ function botLinesPanel(id, repaint) {
     });
   });
   wrap.append(h('p', { class: 'hub-sub' }, '💬 Sätze an / aus'), list);
-  const hasAny = B.mine.length || B.off.length || B.rate || B.dev || B.only;
-  if (hasAny) wrap.append(h('button', { class: 'btn soft', type: 'button', onclick: () => { delete botCfg().bots[id]; Store.save(); AE.play('tap'); repaint(); } }, '↩️ ' + 'Wie am Anfang'));
+  const hasAny = B.mine.length || B.off.length || B.rate || B.dev || B.only || B.show || B.emoOff;
+  if (hasAny) wrap.append(h('button', { class: 'btn soft', type: 'button', onclick: () => { B.mine.map(botMsg).forEach(m => { if (m.snd) SndDB.del('msg:' + id + ':' + m.k); }); delete botCfg().bots[id]; Store.save(); AE.play('tap'); repaint(); } }, '↩️ ' + 'Wie am Anfang'));
   return wrap;
 }
 function botResetAll(done) {
   delete S.botCfg; S.botTalk = 2; delete S.botVoice; Store.save(); SndDB.clear(); for (const k in ownBufs) delete ownBufs[k]; botSizesApply(); if (done) done();
+}
+
+/* own messages: older saves were plain strings */
+const botMsg = m => typeof m === 'string' ? { t: m, e: '' } : (m || { t: '' });
+const botEmoOn = id => !((botCfg().bots || {})[id] || {}).emoOff;
+/* play raw audio bytes (a fresh recording or a file) */
+async function playAB(ab, max) {
+  unlockAudio(); if (!AE.ctx || !ab) return;
+  let b; try { b = await AE.ctx.decodeAudioData(ab.slice(0)); } catch (e) { toast('Diesen Ton kann das Gerät nicht abspielen.'); return; }
+  return playBufMax(b, max);
+}
+function playBufMax(b, max) {
+  return new Promise(res => { try { const s = AE.ctx.createBufferSource(), g = AE.ctx.createGain(); s.buffer = b; g.gain.value = 1; s.connect(g); g.connect(AE.voice || AE.master); const d = Math.min(max || 10, b.duration); s.onended = () => res(); Voice.cur = s; Voice.curRes = res; s.start(); s.stop(AE.ctx.currentTime + d); setTimeout(res, d * 1000 + 400); } catch (e) { res(); } });
+}
+/* the saved own sound of a message (stoppable like any voice, so voices never overlap) */
+function playMsgSound(id, m) { return ownSound('msg:' + id + ':' + m.k).then(b => b ? playBufMax(b, 10) : null); }
+/* record with the microphone (works on the website in Safari/Chrome; max 10 s) */
+let recNow = null;
+async function recToggle(btn, done) {
+  if (recNow) { recNow.stop(); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') { toast('Aufnehmen geht hier nicht – öffne die Webseite im Browser.'); return; }
+  let st; try { st = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) { toast('Mikrofon nicht erlaubt.'); return; }
+  const chunks = [], mr = new MediaRecorder(st); let sec = 0;
+  mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  mr.onstop = async () => { clearInterval(tk); clearTimeout(cap); st.getTracks().forEach(t => t.stop()); recNow = null; btn.classList.remove('on'); btn.textContent = '🎙️ Aufnehmen'; const bl = new Blob(chunks, { type: mr.mimeType || 'audio/webm' }); if (bl.size) done(await bl.arrayBuffer()); };
+  const tk = setInterval(() => { sec++; btn.textContent = '⏹ ' + sec + ' s'; }, 1000), cap = setTimeout(() => { if (mr.state !== 'inactive') mr.stop(); }, 10000);
+  recNow = mr; btn.classList.add('on'); btn.textContent = '⏹ 0 s'; mr.start();
 }
 
 /* ======================= Release 1: settings, kingdom economy, raids, film ======================= */

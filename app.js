@@ -3891,7 +3891,7 @@ GAME_IMPL.schloss = {
       ov.append(bar, cat);
       const N = 14; let sent = 0, done = 0, ok = 0, hit = 0;
       const okEl = $('.ok', score), hitEl = $('.hit', score);
-      const talk = (kind) => { const x = pick(bots); x.bub.textContent = pick(SIEGE_SAY[kind]); x.bub.hidden = false; x.bub.classList.remove('in'); void x.bub.offsetWidth; x.bub.classList.add('in'); AE.play('chatter', { p: x.b.pitch }); x.el.classList.remove('jump'); void x.el.offsetWidth; x.el.classList.add('jump'); clearTimeout(x.t); x.t = setTimeout(() => { x.bub.hidden = true; }, 1300); };
+      const talk = (kind) => { const x = pick(bots); if (S.botTalk === 0) return; const md = botMode(x.b.id); x.bub.textContent = md === 'emoji' ? botFeel(kind === 'hit' ? 'cheer' : 'happy').e : pick(SIEGE_SAY[kind]); x.bub.hidden = false; x.bub.classList.remove('in'); void x.bub.offsetWidth; x.bub.classList.add('in'); AE.play('chatter', { p: x.b.pitch }); x.el.classList.remove('jump'); void x.el.offsetWidth; x.el.classList.add('jump'); clearTimeout(x.t); x.t = setTimeout(() => { x.bub.hidden = true; }, 1300); };
       function launch() {
         if (!App.alive(g0)) return;
         sent++;
@@ -4549,12 +4549,11 @@ GAME_IMPL.gold = {
     function shoot(p) { if (p.st !== 'swing' || R.done || !running) return false; p.st = 'out'; p.len = 0; AE.play('shoot', { pan: (p.fx - 0.5) * 1.2 }); return true; }
     function say(p, kind, force) {
       if (p.me) return; const now = performance.now(); if (!force && now - p.bubT < 2200) return;
-      p.bubT = now; const line = pick(BOT_SAY[kind]); p.bub.textContent = line; p.bub.hidden = false;
-      if (typeof emojiBurst === 'function' && botEmoOn(p.id)) emojiBurst(p.bub, { gold: ['⭐', '✨', '💰'], big: ['💪', '💦'], gem: ['💎', '✨'], rock: ['🪨', '💥'], miss: ['💨'], sack: ['🎁', '❓'], win: ['🏆', '🎉'], lose: ['💫'] }[kind] || ['✨'], 2);
-      if ((force || Math.random() < 0.55) && typeof BotTalk !== 'undefined' && BOT_VOICE[p.id]) BotTalk.add(p.id, line, { maxWait: force ? 5000 : 2200 });
-      if (typeof botMood === 'function' && p.bub && p.bub.parentNode && botEmoOn(p.id)) botMood(p.bub.parentNode, { gold: 'ok', big: 'plan', gem: 'love', rock: 'miss', miss: 'miss', sack: 'think', win: 'win', lose: 'lose' }[kind] || 'ok'); p.bub.classList.remove('in'); void p.bub.offsetWidth; p.bub.classList.add('in');
-      AE.play('chatter', { p: p.pitch, pan: (p.fx - 0.5) * 1.2 });
-      clearTimeout(p.bubTo); p.bubTo = setTimeout(() => { p.bub.hidden = true; }, 1900);
+      p.bubT = now; const line = pick(BOT_SAY[kind]);
+      const show = t => { p.bub.textContent = t; p.bub.hidden = false; p.bub.classList.remove('in'); void p.bub.offsetWidth; p.bub.classList.add('in'); clearTimeout(p.bubTo); p.bubTo = setTimeout(() => { p.bub.hidden = true; }, 1900);
+        if (botEmoOn(p.id)) { emojiBurst(p.bub, { gold: ['⭐', '✨', '💰'], big: ['💪', '💦'], gem: ['💎', '✨'], rock: ['🪨', '💥'], miss: ['💨'], sack: ['🎁', '❓'], win: ['🏆', '🎉'], lose: ['💫'] }[kind] || ['✨'], 3); if (p.bub.parentNode) botMood(p.bub.parentNode, { gold: 'ok', big: 'plan', gem: 'love', rock: 'miss', miss: 'miss', sack: 'think', win: 'win', lose: 'lose' }[kind] || 'ok'); } };
+      /* through the friends settings: how often, emoji or words, own messages */
+      botGameSay(p.id, line, { cat: { gold: 'ok', big: 'plan', gem: 'pgood', rock: 'miss', miss: 'miss', sack: 'think', win: 'win', lose: 'lose' }[kind] || 'ok', force, maxWait: force ? 5000 : 2200, bubble: show });
     }
     function wob(p, cls) { const av = $('.gp-av', p.el); av.classList.remove('wob', 'jump', 'spin'); void av.offsetWidth; av.classList.add(cls); }
     const floats = [];
@@ -5739,10 +5738,12 @@ function botMood(el, cat) {
 }
 /* mood + (maybe) a spoken line in the bot's own voice; o.talk=false keeps it silent */
 function botReact(bot, cat, el, o) {
-  o = o || {}; if (botEmoOn(bot)) botMood(el, cat);
-  if (o.talk === false) return null;
+  o = o || {};
+  if (o.talk === false) { if (botEmoAlone(bot)) botMood(el, cat); return null; }
   const line = botLine(bot, cat);
-  BotTalk.add(bot, line, { maxWait: o.maxWait, cat, onSpeak: t => { if (o.bubble) o.bubble(t); if (el && botEmoOn(bot)) emojiBurst(el, [botFeel(feelOf(cat)).e, '✨'], 2); } });
+  BotTalk.add(bot, line, { maxWait: o.maxWait, cat, onSpeak: (t, it) => {
+    if (o.bubble) o.bubble(it.mode === 'emoji' || !it.text ? (it.msg && it.msg.e) || botFeel(it.feel).e : it.text);
+    if (el && botEmoOn(bot)) { botMood(el, cat); emojiBurst(el, [botFeel(feelOf(cat)).e, '✨'], 2); } } });
   return line;
 }
 function botBanter(present, bubbleFor) {
@@ -5751,25 +5752,25 @@ function botBanter(present, bubbleFor) {
   if (!opts.length) return false;
   const b = pick(opts);
   const el = id => { const p = present.find(x => (x.id || x) === id); return p && p.el; };
-  BotTalk.add(b[0], b[1], { maxWait: 5000, cat: 'idea', onSpeak: t => { botMood(el(b[0]), 'idea'); if (bubbleFor) bubbleFor(b[0], t); } });
-  BotTalk.add(b[2], b[3], { maxWait: 9000, cat: 'ok', force: true, onSpeak: t => { botMood(el(b[2]), 'ok'); if (bubbleFor) bubbleFor(b[2], t); } });
+  BotTalk.add(b[0], b[1], { maxWait: 5000, cat: 'idea', onSpeak: t => { if (botEmoOn(b[0])) botMood(el(b[0]), 'idea'); if (bubbleFor) bubbleFor(b[0], t); } });
+  BotTalk.add(b[2], b[3], { maxWait: 9000, cat: 'ok', force: true, onSpeak: t => { if (botEmoOn(b[2])) botMood(el(b[2]), 'ok'); if (bubbleFor) bubbleFor(b[2], t); } });
   return true;
 }
 /* old entry point (neighbours, battles): now also waits its turn */
 function botSay(botId, kind, el, o) {
   o = o || {};
-  if (botEmoOn(botId)) { if (el) emojiBurst(el, NB_EMO[kind] || NB_EMO.taunt, o.n || 3); botMood(el, kind); }
+  const fx = () => { if (botEmoOn(botId)) { if (el) emojiBurst(el, NB_EMO[kind] || NB_EMO.taunt, o.n || 3); botMood(el, kind); } };
   const fun = typeof NB_FUN !== 'undefined' && NB_FUN[kind];
   if (fun) {
     const key = botId + ':fun:' + kind, rec = botRecent[key] || (botRecent[key] = []);
     let opts = fun.filter(l => !rec.includes(l[0])); if (!opts.length) { rec.length = 0; opts = fun.slice(); }
     const maxW = [0, 4, 9, 999][botCfg().len] || 999, fit = opts.filter(l => l[0].split(/\s+/).length <= maxW); if (fit.length) opts = fit;
     const l = pick(opts); rec.push(l[0]); if (rec.length > Math.max(1, fun.length - 1)) rec.shift();
-    BotTalk.add(botId, l[0], { ar: l[1], cat: kind, maxWait: o.force ? 7000 : 3500 });
+    BotTalk.add(botId, l[0], { ar: l[1], cat: kind, maxWait: o.force ? 7000 : 3500, onSpeak: fx });
     return l[0];
   }
   const line = botLine(botId, kind);
-  BotTalk.add(botId, line, { cat: kind, maxWait: o.force ? 6000 : 3000 });
+  BotTalk.add(botId, line, { cat: kind, maxWait: o.force ? 6000 : 3000, onSpeak: fx });
   return line;
 }
 
@@ -6030,7 +6031,7 @@ function Neighbors(o) {
     for (const x of els) {
       const r = x.el.getBoundingClientRect(); if (r.right < vr.left + 30 || r.left > vr.right - 30) continue;
       if (x.n.snow.length && now - (x.n.hitAt || 0) > 15000) {
-        careT = now; botSay(x.bot.id, 'clean', x.el, { n: 3 }); if (botEmoOn(x.bot.id)) emojiBurst(x.el, ['🧹', '✨', '💨'], 4); AE.play('wipe');
+        careT = now; botSay(x.bot.id, 'clean', x.el, { n: 3 }); if (botEmoAlone(x.bot.id)) emojiBurst(x.el, ['🧹', '✨', '💨'], 4); AE.play('wipe');
         const steps = x.n.snow.length; for (let k = 0; k < steps; k++) App.later(() => { x.n.snow.shift(); paintSnow(x); AE.play(k % 3 ? 'wipe' : 'sparkle'); if (!x.n.snow.length) { FX.burstAt(x.el, { n: 22 }); Store.save(); } }, 400 + k * 220);
         return;
       }
@@ -6320,6 +6321,9 @@ function botResetAll(done) {
 const botMsg = m => typeof m === 'string' ? { t: m, e: '' } : (m || { t: '' });
 /* emoji above a friend (mood pops, bursts): off when switched off or when it should only use words */
 const botEmoOn = id => { const C = botCfg(), B = (C.bots || {})[id] || {}; return !B.emoOff && (B.show || C.show) !== 'words'; };
+/* emoji without words (mood pops on their own) only in "only emoji"; in "emoji + words" they come together with the words */
+const botMode = id => { const C = botCfg(), B = (C.bots || {})[id] || {}; return B.show || C.show; };
+const botEmoAlone = id => botEmoOn(id) && botMode(id) === 'emoji';
 /* play raw audio bytes (a fresh recording or a file) */
 async function canDecode(ab) { unlockAudio(); if (!AE.ctx) return true; try { await AE.ctx.decodeAudioData(ab.slice(0)); return true; } catch (e) { return false; } }
 async function playAB(ab, max) {
@@ -6343,6 +6347,15 @@ async function recToggle(btn, done) {
   mr.onstop = async () => { clearInterval(tk); clearTimeout(cap); st.getTracks().forEach(t => t.stop()); recNow = null; btn.classList.remove('on'); btn.textContent = '🎙️ Aufnehmen'; const bl = new Blob(chunks, { type: mr.mimeType || 'audio/webm' }); if (bl.size) done(await bl.arrayBuffer()); };
   const tk = setInterval(() => { sec++; btn.textContent = '⏹ ' + sec + ' s'; }, 1000), cap = setTimeout(() => { if (mr.state !== 'inactive') mr.stop(); }, 10000);
   recNow = mr; btn.classList.add('on'); btn.textContent = '⏹ 0 s'; mr.start();
+}
+
+/* game bubbles (Gold-Jagd, Ballon-Jagd …) go through the friends settings too: the bubble shows what the friend really does */
+const GAME_FEEL = { hit: 'miss', ouch: 'miss', rock: 'miss', miss: 'miss', frozen: 'lose', lose: 'lose', gold: 'ok', big: 'ok', gem: 'pgood', sack: 'think', treasure: 'ok', win: 'win', taunt: 'lead', frz: 'lead', joke: 'idea' };
+function botGameSay(bid, text, o) {
+  o = o || {}; if (!text) return;
+  if (!bid || !QUIZ_BOTS.some(b => b.id === bid)) { if (o.bubble) o.bubble(text); return; }
+  BotTalk.add(bid, text, { ar: o.ar, cat: GAME_FEEL[o.cat] || o.cat, force: o.force, maxWait: o.maxWait || 4000,
+    onSpeak: (t, it) => { if (o.bubble) o.bubble(it.mode === 'emoji' || !it.text ? ((it.msg && it.msg.e) || botFeel(it.feel).e) : it.text); } });
 }
 
 /* ======================= Release 1: settings, kingdom economy, raids, film ======================= */
@@ -10054,8 +10067,7 @@ function goldTog(stage, ctx) {
   let shake = 0;
   const botSpeak = (p, cat, idx) => {
     const L = GLINES[cat]; if (!p || !L) return; const ln = L[idx % L.length]; if (!ln) return;
-    say(p, ln[0]); AE.play('chatter', { p: (p.r.bot && p.r.bot.pitch) || 900, pan: (p.fx - 0.5) * 1.2 });
-    if (p.bid && typeof BotTalk !== 'undefined') BotTalk.add(p.bid, ln[0], { ar: ln[1], maxWait: 3500, force: cat === 'hit' || cat === 'ouch' || cat === 'joke' });
+    botGameSay(p.bid, ln[0], { ar: ln[1], cat, maxWait: 3500, force: cat === 'hit' || cat === 'ouch' || cat === 'joke', bubble: t => say(p, t) });
   };
   let evSeen = 0, firstEv = true;
   function onEvent(e) {
@@ -10599,7 +10611,7 @@ function blasenTog(stage, ctx) {
     paintMeter();
   }
   const paintScores = () => launchers.forEach((L, i) => { const v = String(scoreOf(i)); if (L.sc.textContent !== v) { L.sc.textContent = v; L.sc.classList.remove('up'); void L.sc.offsetWidth; L.sc.classList.add('up'); } });
-  const say = (i, txt) => { const L = launchers[i]; if (!L || !txt) return; L.bub.textContent = txt; L.bub.hidden = false; L.bub.classList.remove('in'); void L.bub.offsetWidth; L.bub.classList.add('in'); clearTimeout(L.bto); L.bto = setTimeout(() => { L.bub.hidden = true; }, 2300); };
+  const say = (i, txt) => { const L = launchers[i]; if (!L || !txt) return; L.bub.classList.toggle('bj-emo', [...txt].length <= 2); L.bub.textContent = txt; L.bub.hidden = false; L.bub.classList.remove('in'); void L.bub.offsetWidth; L.bub.classList.add('in'); clearTimeout(L.bto); L.bto = setTimeout(() => { L.bub.hidden = true; }, 2300); };
   let tickTo = 0; const ticker = t => { tick.textContent = t; tick.hidden = false; tick.classList.remove('in'); void tick.offsetWidth; tick.classList.add('in'); clearTimeout(tickTo); tickTo = setTimeout(() => { tick.hidden = true; }, 2600); };
   /* ---- balloons ---- */
   let fw = 600, fh = 400, sz = 80, bandH = 104, last = 0, lanes = 5;
@@ -10757,7 +10769,9 @@ function blasenTog(stage, ctx) {
       if (i === meI) { M.tr++; if (k === 'gem') { R.pts += 3; M.hits++; } if (k === 'x2') { x2To = Date.now() + 6000; AE.play('combo'); } checkMission(); paintMeter(); if (R.tog) R.tog.res(1); }
       if (k === 'frz') { AE.play('freeze'); if (i !== meI) { freezeTo = Math.max(freezeTo, Date.now() + 2500); frzEl.hidden = false; setTimeout(() => { frzEl.hidden = true; }, 2500); field.classList.add('iced'); setTimeout(() => field.classList.remove('iced'), 2500); } }
       FX.confetti(30);
-    } else if (ty === 'j') say(i, { taunt: '🔥', miss: '💨', joke: '🎉', treasure: '💎', frz: '❄️', frozen: '❄️' }[k] || '✨');
+    } else if (ty === 'j') { const bid = pl[i] && pl[i].startsWith('b:') ? pl[i].slice(2) : null; if (!bid || !BOT_LINES[bid]) return;
+      const cat = { taunt: 'lead', miss: 'miss', joke: 'start', treasure: 'ok', frz: 'lead', frozen: 'behind' }[k] || 'ok';
+      const line = botLine(bid, cat); botGameSay(bid, line, { cat, bubble: t => say(i, t) }); }
   }
   const E = []; let evSeq = 0;
   const emit = (...a) => { const e = [a[0], ++evSeq, ...a.slice(1)]; E.push(e); while (E.length > 8) E.shift(); dirty = true; onEvent(e); };
